@@ -41,8 +41,8 @@ html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
   background:linear-gradient(90deg,transparent 0%,var(--accent-dim) 14%,var(--accent) 50%,var(--accent-dim) 86%,transparent 100%);
   opacity:.85;}
 .brand{display:flex;align-items:center;gap:12px;flex-shrink:0;height:44px;text-decoration:none;}
-.brand svg{height:34px;width:auto;display:block;flex-shrink:0;
-  filter:drop-shadow(0 1px 0 rgba(0,0,0,.65)) drop-shadow(0 0 8px rgba(99,215,212,0.10));}
+.brand-wordmark{height:34px;width:auto;display:block;flex-shrink:0;
+  filter:drop-shadow(0 1px 0 rgba(0,0,0,.65)) drop-shadow(0 0 6px rgba(99,215,212,0.08));}
 .brand-sub{font-family:var(--fh);font-size:10px;letter-spacing:2.4px;color:var(--t3);line-height:1.25;
   white-space:nowrap;border-left:1px solid var(--b1);padding-left:12px;
   display:flex;flex-direction:column;justify-content:center;align-self:stretch;}
@@ -606,30 +606,12 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
 <!-- HEADER -->
 <div class="hdr">
   <a href="#" class="brand" title="GUR — DJ Live Sequencer" aria-label="GUR — DJ Live Sequencer">
-    <!-- Wordmark — matches the JUCE app's gur_logo.png (chunky italic GUR, brushed metal).
-         The two stacked text layers fake the embossed bevel: dark base, lighter top with offset. -->
-    <svg viewBox="0 0 360 120" shape-rendering="geometricPrecision" aria-hidden="true"
-         font-family="Segoe UI Black, Arial Black, 'Helvetica Neue', sans-serif"
-         font-style="italic" font-weight="900" letter-spacing="-4">
-      <defs>
-        <linearGradient id="gurMetalTop" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stop-color="#F7FAFB"/>
-          <stop offset="42%"  stop-color="#C7CED2"/>
-          <stop offset="60%"  stop-color="#5E666C"/>
-          <stop offset="100%" stop-color="#2A2F33"/>
-        </linearGradient>
-        <linearGradient id="gurMetalShade" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stop-color="#2A2F33"/>
-          <stop offset="100%" stop-color="#0A0B0D"/>
-        </linearGradient>
-      </defs>
-      <!-- shadow layer (offset down, dark) — gives the bevel depth -->
-      <text x="180" y="94" text-anchor="middle" font-size="116"
-            fill="url(#gurMetalShade)" stroke="#000" stroke-width="1.4">GUR</text>
-      <!-- top layer (offset up, brushed metal) -->
-      <text x="180" y="92" text-anchor="middle" font-size="116"
-            fill="url(#gurMetalTop)" stroke="#1a1e22" stroke-width="0.6">GUR</text>
-    </svg>
+    <!-- Wordmark — the actual JUCE app gur_logo.png (extracted by
+         make_gur_logo.ps1 from "GUR icon.png"). The PNG ships as a sibling
+         file in DJLS-public so both the local file and the deploy resolve
+         the relative path. Don't replace with an SVG font approximation —
+         there is no system font that matches this glyph set. -->
+    <img class="brand-wordmark" alt="GUR" src="gur_logo.png">
     <span class="brand-sub"><span>DJ LIVE</span><span>SEQUENCER</span></span>
   </a>
   <button class="hb" onclick="newProject()">NEW</button>
