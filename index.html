@@ -155,7 +155,13 @@ html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
 
 .ch-left{display:flex;flex-direction:column;align-items:center;justify-content:space-between;
   width:40px;flex-shrink:0;padding:2px 0;border-right:1px solid var(--b1);}
-.ch-name{font-family:var(--fh);font-size:12px;letter-spacing:1.4px;
+/* Font-size + letter-spacing scale with --RH so the vertical names ("CHORD", "SNARE")
+   fit the smaller channel row height on browser-default screen sizes (where
+   initScale() locks --RH to bodyH/8). Clamped so they stay readable on both
+   small and very large displays. */
+.ch-name{font-family:var(--fh);
+  font-size:clamp(8.5px, calc(var(--RH) * 0.18), 12px);
+  letter-spacing:clamp(0.6px, calc(var(--RH) * 0.022), 1.4px);
   writing-mode:vertical-lr;text-orientation:upright;flex:1;
   display:flex;align-items:center;justify-content:center;
   /* Silver metallic — matches the .brand wordmark feel. */
