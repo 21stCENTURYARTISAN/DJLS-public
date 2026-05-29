@@ -40,15 +40,12 @@ html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
 .hdr::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
   background:linear-gradient(90deg,transparent 0%,var(--accent-dim) 14%,var(--accent) 50%,var(--accent-dim) 86%,transparent 100%);
   opacity:.85;}
-.brand{display:flex;align-items:center;gap:10px;flex-shrink:0;height:44px;text-decoration:none;}
-.brand svg{height:38px;width:38px;display:block;flex-shrink:0;
-  filter:drop-shadow(0 0 8px rgba(99,215,212,0.18));}
-.brand-sub{font-family:var(--fh);font-size:11px;letter-spacing:2.6px;color:var(--t3);line-height:1.05;
-  white-space:nowrap;}
-.brand-sub b{display:block;font-size:16px;letter-spacing:3px;
-  background:linear-gradient(180deg,#f4f6f8 0%,#aab0b6 55%,#6b7278 100%);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;color:transparent;
-  font-weight:400;}
+.brand{display:flex;align-items:center;gap:12px;flex-shrink:0;height:44px;text-decoration:none;}
+.brand svg{height:34px;width:auto;display:block;flex-shrink:0;
+  filter:drop-shadow(0 1px 0 rgba(0,0,0,.65)) drop-shadow(0 0 8px rgba(99,215,212,0.10));}
+.brand-sub{font-family:var(--fh);font-size:10px;letter-spacing:2.4px;color:var(--t3);line-height:1.25;
+  white-space:nowrap;border-left:1px solid var(--b1);padding-left:12px;
+  display:flex;flex-direction:column;justify-content:center;align-self:stretch;}
 @media (max-width:760px){
   .brand-sub{display:none;}
 }
@@ -609,29 +606,31 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
 <!-- HEADER -->
 <div class="hdr">
   <a href="#" class="brand" title="GUR — DJ Live Sequencer" aria-label="GUR — DJ Live Sequencer">
-    <svg viewBox="0 0 1024 1024" shape-rendering="geometricPrecision" aria-hidden="true">
+    <!-- Wordmark — matches the JUCE app's gur_logo.png (chunky italic GUR, brushed metal).
+         The two stacked text layers fake the embossed bevel: dark base, lighter top with offset. -->
+    <svg viewBox="0 0 360 120" shape-rendering="geometricPrecision" aria-hidden="true"
+         font-family="Segoe UI Black, Arial Black, 'Helvetica Neue', sans-serif"
+         font-style="italic" font-weight="900" letter-spacing="-4">
       <defs>
-        <linearGradient id="gurRingGrad" x1="760" y1="340" x2="900" y2="700" gradientUnits="userSpaceOnUse">
-          <stop offset="0%"   stop-color="#7C878B"/>
-          <stop offset="40%"  stop-color="#63D7D4" stop-opacity="0.92"/>
-          <stop offset="100%" stop-color="#7C878B"/>
-        </linearGradient>
-        <linearGradient id="gurTextGrad" x1="332" y1="324" x2="702" y2="704" gradientUnits="userSpaceOnUse">
+        <linearGradient id="gurMetalTop" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%"   stop-color="#F7FAFB"/>
-          <stop offset="54%"  stop-color="#D7DEE1"/>
-          <stop offset="100%" stop-color="#A7B2B5"/>
+          <stop offset="42%"  stop-color="#C7CED2"/>
+          <stop offset="60%"  stop-color="#5E666C"/>
+          <stop offset="100%" stop-color="#2A2F33"/>
+        </linearGradient>
+        <linearGradient id="gurMetalShade" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#2A2F33"/>
+          <stop offset="100%" stop-color="#0A0B0D"/>
         </linearGradient>
       </defs>
-      <circle cx="512" cy="512" r="304" fill="none" stroke="#7C878B" stroke-width="60"/>
-      <circle cx="512" cy="512" r="304" fill="none" stroke="url(#gurRingGrad)" stroke-width="50"
-              stroke-linecap="round" stroke-dasharray="260 1410" stroke-dashoffset="208"
-              transform="rotate(16 512 512)"/>
-      <text x="512" y="552" text-anchor="middle"
-            font-family="Segoe UI Black, Arial Black, Arial, sans-serif"
-            font-size="236" font-style="italic" font-weight="900"
-            letter-spacing="-12" fill="url(#gurTextGrad)">GUR</text>
+      <!-- shadow layer (offset down, dark) — gives the bevel depth -->
+      <text x="180" y="94" text-anchor="middle" font-size="116"
+            fill="url(#gurMetalShade)" stroke="#000" stroke-width="1.4">GUR</text>
+      <!-- top layer (offset up, brushed metal) -->
+      <text x="180" y="92" text-anchor="middle" font-size="116"
+            fill="url(#gurMetalTop)" stroke="#1a1e22" stroke-width="0.6">GUR</text>
     </svg>
-    <span class="brand-sub"><b>GUR</b>DJ LIVE SEQUENCER</span>
+    <span class="brand-sub"><span>DJ LIVE</span><span>SEQUENCER</span></span>
   </a>
   <button class="hb" onclick="newProject()">NEW</button>
   <button class="hb" onclick="saveProject()">SAVE</button>
