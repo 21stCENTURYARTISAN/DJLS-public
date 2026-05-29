@@ -157,11 +157,12 @@ html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
   width:40px;flex-shrink:0;padding:2px 0;border-right:1px solid var(--b1);}
 /* Font-size + letter-spacing scale with --RH so the vertical names ("CHORD", "SNARE")
    fit the smaller channel row height on browser-default screen sizes (where
-   initScale() locks --RH to bodyH/8). Clamped so they stay readable on both
-   small and very large displays. */
+   initScale() locks --RH to bodyH/8). Tight ceiling — at the default 1280x720
+   design size --RH lands around 75px and we want the names compact, not the
+   row-filling slab they were at 12px. */
 .ch-name{font-family:var(--fh);
-  font-size:clamp(8.5px, calc(var(--RH) * 0.18), 12px);
-  letter-spacing:clamp(0.6px, calc(var(--RH) * 0.022), 1.4px);
+  font-size:clamp(7px, calc(var(--RH) * 0.11), 10px);
+  letter-spacing:clamp(0.4px, calc(var(--RH) * 0.012), 0.9px);
   writing-mode:vertical-lr;text-orientation:upright;flex:1;
   display:flex;align-items:center;justify-content:center;
   /* Silver metallic — matches the .brand wordmark feel. */
@@ -1680,6 +1681,19 @@ async function startAudio(){
 
 document.addEventListener('DOMContentLoaded',()=>{
   startAudio().catch(e=>console.log('[audio] auto-start deferred:',e.message));
+  // Mobile / iframe gesture catcher: on mobile (and especially when embedded
+  // in an iframe) the auto-startAudio above fails silently because there's no
+  // user gesture yet. Any touch / click / keypress will retry once. Without
+  // this you can be inside the synth tapping things and hearing nothing,
+  // because togglePlay() is the only path that retries startAudio.
+  let _unlocked=false;
+  const _gestureUnlock=()=>{
+    if(_unlocked)return; _unlocked=true;
+    startAudio().catch(e=>{_unlocked=false;});
+  };
+  ['pointerdown','touchstart','mousedown','keydown'].forEach(ev=>{
+    document.addEventListener(ev,_gestureUnlock,{once:false,passive:true,capture:true});
+  });
 });
  
 function mkIR(dur,dc){
@@ -3805,8 +3819,15 @@ function setTheme(name){
 ═══════════════════════════════════════════════════════════ */
 let DESIGN_W=0,DESIGN_H=0;
 function initScale(){
-  DESIGN_W=window.innerWidth;
-  DESIGN_H=window.innerHeight;
+  // Enforce a minimum desktop-grade design size. On a narrow mobile / iframe
+  // viewport (e.g. 360x270), the synth's per-channel knob/fader layout collapses
+  // and even the PLAY button becomes untappable — which on mobile means the
+  // AudioContext never gets its user gesture and you hear nothing. Forcing a
+  // 1280x720 design floor keeps the UI laid out at desktop scale, then the
+  // transform-scale below shrinks the whole console to fit the viewport.
+  const MIN_W=1280, MIN_H=720;
+  DESIGN_W=Math.max(window.innerWidth, MIN_W);
+  DESIGN_H=Math.max(window.innerHeight, MIN_H);
   // Lock CSS vars to fixed pixel values so transform scaling works correctly
   const r=document.documentElement.style;
   r.setProperty('--MX',Math.floor(DESIGN_W*0.3333)+'px');
@@ -3822,6 +3843,10 @@ function updateScale(){
   if(!DESIGN_W)return;
   const con=document.getElementById('console');
   if(!con)return;
+  // Independent X/Y scale so the synth always fills the viewport even when
+  // the aspect ratio is far from 16:9 (mobile portrait iframes especially).
+  // On phones this stretches; the trade-off is "stretched but usable" vs
+  // "perfect aspect but micro-sized in a strip down the middle".
   const sx=window.innerWidth/DESIGN_W;
   const sy=window.innerHeight/DESIGN_H;
   con.style.transform=`scale(${sx},${sy})`;
