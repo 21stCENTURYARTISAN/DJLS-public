@@ -638,6 +638,44 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
   .ts-rotate{display:block;}
   .ts-hint{display:none;}
 }
+
+/* ── PHONE-ONLY in-synth fullscreen button ─────────────────
+   The synth's design-floor of 1280x720 means on a phone the console is
+   transform-scaled down to fit the viewport. The user needs a way to push
+   the synth into the device's real fullscreen + landscape so controls are
+   legible and tappable. This button is HIDDEN by default; the media query
+   below (max-width + coarse pointer + limited height) is the gate, so it
+   appears on iPhone / Android phones but never on iPad, large touchscreens,
+   laptops, or desktops. It is position:fixed so the #console transform does
+   NOT shrink it; safe-area-inset-* keep it clear of notches and home bars. */
+.phone-fs-btn{display:none;}
+@media (max-width:767px) and (pointer:coarse) and (max-height:520px),
+       (max-width:767px) and (pointer:coarse) and (orientation:portrait){
+  .phone-fs-btn{
+    display:flex;align-items:center;gap:6px;
+    position:fixed;
+    top:max(8px, env(safe-area-inset-top));
+    right:max(8px, env(safe-area-inset-right));
+    z-index:99998;
+    background:linear-gradient(180deg, rgba(20,24,27,0.94) 0%, rgba(8,9,10,0.94) 100%);
+    color:var(--accent);
+    border:1px solid var(--accent-dim);
+    border-radius:8px;
+    padding:9px 12px 8px;
+    font-family:var(--fh);font-size:12px;letter-spacing:2px;line-height:1;
+    cursor:pointer;
+    box-shadow:0 2px 12px rgba(0,0,0,0.45), 0 0 0 1px rgba(99,215,212,0.10);
+    -webkit-tap-highlight-color:transparent;
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+    touch-action:manipulation;
+  }
+  .phone-fs-btn:active{transform:translateY(1px);}
+  .phone-fs-btn svg{display:block;flex-shrink:0;}
+}
+/* CSS-only fallback for browsers (older iOS Safari) that refuse element
+   fullscreen — we already render to 100vw/100vh, but force a hard pin so
+   the synth fills the visual viewport even if mobile chrome resizes. */
+body.mobile-fullscreen-active{position:fixed;inset:0;width:100vw;height:100vh;}
 </style>
 </head>
 <body>
@@ -655,6 +693,17 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
     <div class="ts-rotate">↻ ROTATE TO LANDSCAPE</div>
   </div>
 </div>
+
+<!-- Phone-only in-synth fullscreen toggle. CSS gates visibility to phone
+     viewports with coarse pointers; the click handler is always wired but
+     does nothing on devices where the button isn't shown. -->
+<button class="phone-fs-btn" id="phoneFsBtn" type="button" aria-label="Enter fullscreen">
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 9V4h5"/><path d="M20 9V4h-5"/>
+    <path d="M4 15v5h5"/><path d="M20 15v5h-5"/>
+  </svg>
+  <span class="pfs-lbl">FULLSCREEN</span>
+</button>
 
 <div id="console">
 
@@ -1772,6 +1821,80 @@ document.addEventListener('DOMContentLoaded',()=>{
       if(ctx && ctx.state==='suspended') ctx.resume().catch(()=>{});
     },{passive:true,capture:true});
   });
+
+  // ── Phone-only fullscreen toggle ────────────────────────
+  // CSS gates the button's visibility (max-width:767px + pointer:coarse).
+  // The handler is wired unconditionally — on desktop/iPad the button is
+  // simply never shown, so this code never runs there. On tap:
+  //   1. requestFullscreen on documentElement (synth fills the device)
+  //   2. screen.orientation.lock('landscape') if supported (Android, some iOS)
+  //   3. Fallback to a CSS-only "mobile-fullscreen-active" class when true
+  //      fullscreen is rejected (older iOS Safari).
+  (function initPhoneFullscreen(){
+    const fsBtn = document.getElementById('phoneFsBtn');
+    if (!fsBtn) return;
+    const lbl = fsBtn.querySelector('.pfs-lbl');
+
+    function inFullscreen(){
+      return !!(document.fullscreenElement || document.webkitFullscreenElement ||
+                document.mozFullScreenElement || document.msFullscreenElement);
+    }
+    function updateLabel(){
+      if (!lbl) return;
+      const active = inFullscreen() || document.body.classList.contains('mobile-fullscreen-active');
+      lbl.textContent = active ? 'EXIT' : 'FULLSCREEN';
+      fsBtn.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Enter fullscreen');
+    }
+    async function lockLandscape(){
+      // Fire-and-forget: iOS Safari rejects this (no orientation lock API),
+      // Chrome/Android honors it, Firefox usually does. Failure is fine —
+      // the natural responsive layout works in either orientation.
+      try{
+        if (screen && screen.orientation && screen.orientation.lock){
+          await screen.orientation.lock('landscape');
+        }
+      } catch(e) { /* iOS or denied — silent fallback */ }
+    }
+    async function enterFs(){
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen ||
+                  el.mozRequestFullScreen || el.msRequestFullscreen;
+      let nativeOK = false;
+      if (req){
+        try{ await req.call(el); nativeOK = true; }
+        catch(e){ nativeOK = false; }
+      }
+      if (!nativeOK){
+        // CSS-only fallback for iOS Safari < 16.4 — pins body to viewport.
+        document.body.classList.add('mobile-fullscreen-active');
+      }
+      lockLandscape();
+      updateLabel();
+    }
+    async function exitFs(){
+      const ex = document.exitFullscreen || document.webkitExitFullscreen ||
+                 document.mozCancelFullScreen || document.msExitFullscreen;
+      try{ if (ex && inFullscreen()) await ex.call(document); } catch(e){}
+      document.body.classList.remove('mobile-fullscreen-active');
+      try{
+        if (screen && screen.orientation && screen.orientation.unlock){
+          screen.orientation.unlock();
+        }
+      } catch(e){}
+      updateLabel();
+    }
+    function toggleFs(e){
+      if (e) e.preventDefault();
+      const active = inFullscreen() || document.body.classList.contains('mobile-fullscreen-active');
+      if (active) exitFs(); else enterFs();
+    }
+    fsBtn.addEventListener('click', toggleFs);
+    fsBtn.addEventListener('touchend', e=>{ e.preventDefault(); toggleFs(); }, {passive:false});
+    ['fullscreenchange','webkitfullscreenchange','mozfullscreenchange','MSFullscreenChange'].forEach(ev=>{
+      document.addEventListener(ev, updateLabel);
+    });
+    updateLabel();
+  })();
 });
  
 function mkIR(dur,dc){
