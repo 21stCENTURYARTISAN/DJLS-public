@@ -153,18 +153,19 @@ html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
 .ch::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent);opacity:.55;}
 .ch.muted{opacity:.35;}
 
+/* `min-height:0` + `overflow:hidden` is the flex-item escape hatch:
+   without them, vertical-lr text inside .ch-name expands its flex item beyond
+   the row height and pushes .ch-led out the bottom (visible bleed into the
+   next channel's row). With them, the row clips and the layout stays. */
 .ch-left{display:flex;flex-direction:column;align-items:center;justify-content:space-between;
-  width:40px;flex-shrink:0;padding:2px 0;border-right:1px solid var(--b1);}
-/* Font-size + letter-spacing scale with --RH so the vertical names ("CHORD", "SNARE")
-   fit the smaller channel row height on browser-default screen sizes (where
-   initScale() locks --RH to bodyH/8). Tight ceiling — at the default 1280x720
-   design size --RH lands around 75px and we want the names compact, not the
-   row-filling slab they were at 12px. */
+  width:40px;flex-shrink:0;padding:2px 0;border-right:1px solid var(--b1);
+  min-height:0;overflow:hidden;}
 .ch-name{font-family:var(--fh);
   font-size:clamp(7px, calc(var(--RH) * 0.11), 10px);
   letter-spacing:clamp(0.4px, calc(var(--RH) * 0.012), 0.9px);
-  writing-mode:vertical-lr;text-orientation:upright;flex:1;
+  writing-mode:vertical-lr;text-orientation:upright;flex:1 1 0;
   display:flex;align-items:center;justify-content:center;
+  min-height:0;max-height:100%;overflow:hidden;text-overflow:clip;white-space:nowrap;
   /* Silver metallic — matches the .brand wordmark feel. */
   background:linear-gradient(180deg,#f4f6f8 0%,#aab0b6 55%,#6b7278 100%);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;color:transparent;
@@ -605,9 +606,56 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
 #masterVolWrap::before{content:'MASTER';font-family:var(--fh);font-size:10px;letter-spacing:1.2px;color:var(--t3);}
 #masterVolWrap .kw{width:24px;height:24px;flex-shrink:0;}
 #masterVolWrap .klbl,#masterVolWrap .kval-sm,#masterVolWrap .kfd{display:none;}
+
+/* ── TAP-TO-START overlay (mobile audio unlock) ─────────────
+   Mobile browsers (iOS Safari especially) require a synchronous user gesture
+   to start audio AND, on iPhone, to route Web Audio through the media volume
+   channel instead of the ringer (silent-switch trap). This overlay gives the
+   user a single big tap target that does both. Hidden once audio is running. */
+#tapStart{position:fixed;inset:0;z-index:99999;
+  background:radial-gradient(ellipse at center, #0e1418 0%, #08090a 70%);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--fm);color:var(--t1);
+  transition:opacity .35s ease;}
+#tapStart.gone{opacity:0;pointer-events:none;}
+.ts-inner{text-align:center;padding:24px;max-width:520px;}
+.ts-logo{max-width:280px;width:60vw;height:auto;display:block;margin:0 auto 8px;
+  filter:drop-shadow(0 0 22px rgba(99,215,212,.18));}
+.ts-sub{font-family:var(--fh);font-size:14px;letter-spacing:5px;color:var(--accent);
+  margin:0 0 36px;}
+.ts-btn{display:inline-block;background:linear-gradient(180deg,var(--accent) 0%,#4ec0bd 100%);
+  color:#0a0c0e;border:0;border-radius:10px;padding:16px 36px;
+  font-family:var(--fh);font-size:18px;letter-spacing:3px;cursor:pointer;
+  box-shadow:0 10px 30px -10px rgba(99,215,212,.55);
+  transition:transform .12s ease, box-shadow .12s ease;}
+.ts-btn:hover,.ts-btn:focus-visible{
+  transform:translateY(-1px);box-shadow:0 14px 36px -10px rgba(99,215,212,.75);outline:none;}
+.ts-btn:active{transform:translateY(1px);}
+.ts-hint{margin-top:22px;color:var(--t3);font-size:13px;line-height:1.5;letter-spacing:.4px;}
+.ts-rotate{display:none;margin-top:18px;color:var(--accent);font-family:var(--fh);
+  font-size:12px;letter-spacing:2px;}
+@media (orientation:portrait) and (max-width:900px){
+  .ts-rotate{display:block;}
+  .ts-hint{display:none;}
+}
 </style>
 </head>
 <body>
+
+<!-- TAP-TO-START — visible on load on every device. Tapping it does a
+     synchronous user-gesture unlock (silent <audio> + AudioContext.resume)
+     then hides the overlay. This is the only reliable way to get audio on
+     iOS Safari (silent-switch routing) and embedded mobile iframes. -->
+<div id="tapStart" aria-hidden="false" role="dialog" aria-label="Start audio">
+  <div class="ts-inner">
+    <img class="ts-logo" src="gur_logo.png" alt="GUR">
+    <div class="ts-sub">DJ LIVE SEQUENCER</div>
+    <button class="ts-btn" id="tapStartBtn" type="button">TAP TO START</button>
+    <div class="ts-hint">Web Audio needs a gesture to start.<br>Best in Chrome / Edge / Firefox — desktop or landscape mobile.</div>
+    <div class="ts-rotate">↻ ROTATE TO LANDSCAPE</div>
+  </div>
+</div>
+
 <div id="console">
 
 <!-- HEADER -->
@@ -1680,19 +1728,49 @@ async function startAudio(){
 }
 
 document.addEventListener('DOMContentLoaded',()=>{
-  startAudio().catch(e=>console.log('[audio] auto-start deferred:',e.message));
-  // Mobile / iframe gesture catcher: on mobile (and especially when embedded
-  // in an iframe) the auto-startAudio above fails silently because there's no
-  // user gesture yet. Any touch / click / keypress will retry once. Without
-  // this you can be inside the synth tapping things and hearing nothing,
-  // because togglePlay() is the only path that retries startAudio.
-  let _unlocked=false;
-  const _gestureUnlock=()=>{
-    if(_unlocked)return; _unlocked=true;
-    startAudio().catch(e=>{_unlocked=false;});
-  };
-  ['pointerdown','touchstart','mousedown','keydown'].forEach(ev=>{
-    document.addEventListener(ev,_gestureUnlock,{once:false,passive:true,capture:true});
+  // Mobile (especially iOS Safari) refuses to start Web Audio without a
+  // synchronous user gesture, AND on iPhone the silent switch routes Web
+  // Audio to the ringer channel — playback works but you hear nothing. The
+  // workaround for both: in a single user-gesture frame, (1) play a muted
+  // <audio> element to claim the media volume channel and (2) call
+  // startAudio() which creates+resumes the AudioContext.
+  const overlay=document.getElementById('tapStart');
+  const btn=document.getElementById('tapStartBtn');
+  let _started=false;
+
+  // Tiny silent WAV (44 bytes) — minimal valid PCM file that iOS will accept
+  // as a media-volume "anchor", flipping Web Audio off the ringer channel.
+  const SILENT_WAV='data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgAAACAgICAgICAgA==';
+
+  async function bootAudio(){
+    if(_started)return; _started=true;
+    // 1. Media-channel anchor — MUST happen in the gesture frame.
+    try{
+      const a=new Audio();a.preload='auto';a.playsInline=true;a.loop=true;
+      a.volume=0.0001; a.src=SILENT_WAV;
+      const p=a.play();
+      if(p&&p.catch)p.catch(()=>{/* OK on desktop, may reject silently */});
+    }catch(e){}
+    // 2. Web Audio create + resume — also in the gesture frame.
+    try{await startAudio();}catch(e){console.log('[audio] start failed:',e&&e.message);}
+    // 3. Dismiss the overlay only after audio actually came up.
+    if(overlay){
+      overlay.classList.add('gone');
+      // Remove after the CSS transition so it never blocks pointer events.
+      setTimeout(()=>{ if(overlay.parentNode) overlay.parentNode.removeChild(overlay); },420);
+    }
+  }
+
+  if(btn){
+    btn.addEventListener('click',bootAudio);
+    btn.addEventListener('touchend',e=>{e.preventDefault();bootAudio();},{passive:false});
+  }
+  // Defensive catcher: if the overlay is somehow gone but audio is still
+  // suspended (e.g. iOS auto-suspend on backgrounding), any tap retries.
+  ['pointerdown','touchstart','keydown'].forEach(ev=>{
+    document.addEventListener(ev,()=>{
+      if(ctx && ctx.state==='suspended') ctx.resume().catch(()=>{});
+    },{passive:true,capture:true});
   });
 });
  
