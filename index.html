@@ -638,6 +638,41 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
   .ts-rotate{display:block;}
   .ts-hint{display:none;}
 }
+
+/* ── DESKTOP TRIAL AD — the header DJ button promotes the native build. ─────
+   Premium, on-brand (JUCE NEON tokens), dismissable. Shown intentionally on
+   user click, never auto-popped. */
+.ad-overlay{position:fixed;inset:0;z-index:1200;display:none;align-items:center;justify-content:center;padding:20px;
+  background:radial-gradient(130% 120% at 50% -10%,rgba(99,215,212,.12),rgba(8,9,10,.88) 58%);
+  -webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);}
+.ad-overlay.open{display:flex;animation:adFade .22s ease;}
+@keyframes adFade{from{opacity:0}to{opacity:1}}
+.ad-card{position:relative;width:min(540px,94vw);max-height:92vh;overflow:auto;padding:32px 32px 24px;
+  background:linear-gradient(180deg,var(--s2) 0%,var(--s1) 100%);border:1px solid var(--accent-dim);border-radius:11px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.45),0 26px 90px rgba(0,0,0,.62),0 0 70px var(--accent-bg);
+  animation:adRise .28s cubic-bezier(.2,.7,.2,1);}
+@keyframes adRise{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+.ad-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:11px 11px 0 0;
+  background:linear-gradient(90deg,transparent,var(--accent) 50%,transparent);}
+.ad-close{position:absolute;top:13px;right:15px;width:30px;height:30px;border-radius:50%;cursor:pointer;
+  background:transparent;border:1px solid var(--b1);color:var(--t3);font-size:15px;line-height:1;
+  display:flex;align-items:center;justify-content:center;transition:.15s;}
+.ad-close:hover{color:var(--t1);border-color:var(--b2);}
+.ad-logo{height:32px;display:block;margin:2px auto 10px;opacity:.97;}
+.ad-title{font-family:var(--fh);font-size:34px;letter-spacing:1.5px;color:var(--t1);text-align:center;line-height:1.04;margin:5px 0 9px;}
+.ad-sub{font-family:var(--fm);font-size:13.5px;color:var(--t2);text-align:center;line-height:1.55;max-width:430px;margin:0 auto 20px;}
+.ad-feats{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;margin:0 auto 24px;max-width:470px;}
+.ad-feat{display:flex;align-items:flex-start;gap:8px;font-family:var(--fm);font-size:12.5px;color:var(--t2);line-height:1.34;}
+.ad-feat svg{flex-shrink:0;margin-top:1px;color:var(--accent);}
+.ad-cta{display:block;width:100%;box-sizing:border-box;font-family:var(--fh);font-size:19px;letter-spacing:1.5px;
+  text-align:center;text-decoration:none;padding:15px 0;border-radius:7px;cursor:pointer;border:none;color:#04211f;
+  background:linear-gradient(180deg,var(--accent),#49bfbc);box-shadow:0 7px 24px var(--accent-glow);transition:.15s;}
+.ad-cta:hover{filter:brightness(1.07);box-shadow:0 10px 30px var(--accent-glow);transform:translateY(-1px);}
+.ad-fine{font-family:var(--fm);font-size:11px;color:var(--t3);text-align:center;margin-top:12px;letter-spacing:.3px;}
+.ad-later{display:block;margin:15px auto 2px;background:none;border:none;color:var(--t3);cursor:pointer;
+  font-family:var(--fm);font-size:12px;text-decoration:underline;text-underline-offset:2px;}
+.ad-later:hover{color:var(--t2);}
+@media(max-width:480px){.ad-feats{grid-template-columns:1fr;gap:9px}.ad-title{font-size:28px}.ad-card{padding:26px 22px 20px}}
 </style>
 </head>
 <body>
@@ -684,7 +719,7 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
       <line x1="15" y1="18" x2="15" y2="10"/><line x1="19" y1="18" x2="19" y2="14"/>
     </svg>
   </button>
-  <button class="hb" id="djBtn" onclick="toggleDJ()">DJ</button>
+  <button class="hb" id="djBtn" onclick="openDesktopAd()" title="DJ mode — desktop edition">DJ</button>
   <button class="hb hb-icon" id="vpkBtn" onclick="toggleVPK()" title="Virtual Piano" aria-label="Virtual Piano">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6">
       <rect x="3.5" y="6.5" width="17" height="11" rx="1"/>
@@ -1038,6 +1073,40 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
     </div>
   </div>
 </div>
+
+<!-- DESKTOP TRIAL AD — opened by the header DJ button -->
+<div class="ad-overlay" id="adOverlay" role="dialog" aria-modal="true" aria-label="Try GUR Desktop free for 14 days">
+  <div class="ad-card">
+    <button class="ad-close" id="adCloseX" type="button" aria-label="Close">✕</button>
+    <img class="ad-logo" src="gur_logo.png" alt="GUR">
+    <div class="ad-title">BUILT FOR PERFORMANCE</div>
+    <div class="ad-sub">You're playing the browser demo. The desktop app is the complete DJ Live Sequencer — four decks, low-latency ASIO audio and full controller support, made to play live.</div>
+    <div class="ad-feats">
+      <div class="ad-feat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><polyline points="20 6 9 17 4 12"/></svg><span>Dual sequencer decks — 6 channels each — plus dual industry-standard track players</span></div>
+      <div class="ad-feat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><polyline points="20 6 9 17 4 12"/></svg><span>Stem separation for perfect remixes: vocals, drums, bass &amp; instruments</span></div>
+      <div class="ad-feat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><polyline points="20 6 9 17 4 12"/></svg><span>Plug-and-play with popular controllers — Pioneer DDJ-FLX (tuned for the FLX10) and Traktor S2 / S4 — plus intuitive mapping for any other</span></div>
+      <div class="ad-feat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><polyline points="20 6 9 17 4 12"/></svg><span>CDJ-grade loops, beat-sync &amp; key-lock</span></div>
+      <div class="ad-feat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><polyline points="20 6 9 17 4 12"/></svg><span>Rekordbox-style colour waveforms with beat grid &amp; cue points</span></div>
+      <div class="ad-feat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><polyline points="20 6 9 17 4 12"/></svg><span>Performance throw-FX &amp; unlimited set recording</span></div>
+    </div>
+    <a class="ad-cta" id="adCta" href="https://21stcenturyartisan.github.io" target="_blank" rel="noopener">TRY FREE FOR 14 DAYS</a>
+    <div class="ad-fine">Full version, free for 14 days · then from $89 · one-time purchase, no subscription</div>
+    <button class="ad-later" id="adLater" type="button">Keep exploring the web demo</button>
+  </div>
+</div>
+<script>
+  (function(){
+    var ov=document.getElementById('adOverlay');
+    function open(){ov.classList.add('open');}
+    function close(){ov.classList.remove('open');}
+    window.openDesktopAd=open;window.closeDesktopAd=close;
+    document.getElementById('adCloseX').addEventListener('click',close);
+    document.getElementById('adLater').addEventListener('click',close);
+    document.getElementById('adCta').addEventListener('click',close); // link opens in new tab; dismiss the modal
+    ov.addEventListener('click',function(e){if(e.target===ov)close();}); // backdrop click
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ov.classList.contains('open'))close();});
+  })();
+</script>
 
 <!-- DJ MODE OVERLAY -->
 <div class="dj-overlay" id="djOverlay">
