@@ -28,7 +28,7 @@
   --HDR:60px;--TOP:30px;--FTR:30px;
   --BODY:calc(100vh - var(--HDR) - var(--TOP) - var(--FTR));
   --RH:calc(var(--BODY)/6);
-  --MX:33.33vw;--SQ:66.67vw;
+  --MX:40vw;--SQ:60vw;
 }
 html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
   color:var(--t1);font-family:var(--fm);user-select:none;touch-action:none;}
@@ -1211,7 +1211,7 @@ let currentTheme='neon';
 const KSEC_SIZES={
   kick:[3,2,1,2],snare:[2,2,1,2],hats:[2,2,3,5],
   bass:[1,3,4,3],chord:[2,3,4,5],
-  arp:[1,3,4,5],pad:[3,2,4,5],lead:[5,3,4,7]
+  arp:[1,3,4,5],pad:[3,2,4,5],lead:[5,3,4,5,2]
 };
 const PD={
   kick: [['VOL','kickAmp',0,1,.88],['PTCH','kickPitch',40,72,50],['SUB','kickSub',0,1,.5],['CLCK','kickClick',0,1,.72],['FREQ','kickEqF',40,400,100],['AMP','kickEqA',-1,1,0],['DEC','kickPunch',.1,.95,.55],['DRV','kickDrive',1,6,3.5],['VERB','kickReverb',0,1,.05]],
@@ -1420,9 +1420,18 @@ let leadWorkletReady=false, leadWorkletTried=false;
 function ensureLeadWorklet(){
   if(leadWorkletTried||!ctx||!ctx.audioWorklet)return;
   leadWorkletTried=true;
+  // IMPORTANT: load from a data: URL, NOT a blob: URL. Blob-URL worklets are
+  // blocked on opaque origins (file:// and some sandboxed iframes) with
+  // "AbortError: Unable to load a worklet's module", which silently forced the
+  // MIX-only fallback (→ FM/SYNC sounded like MIX, LFO dead). data: URLs load in
+  // every tested environment; blob is kept only as a last-ditch fallback.
+  const load=(url)=>ctx.audioWorklet.addModule(url).then(()=>{leadWorkletReady=true;});
   try{
-    const url=URL.createObjectURL(new Blob([LEAD_WORKLET_SRC],{type:'application/javascript'}));
-    ctx.audioWorklet.addModule(url).then(()=>{leadWorkletReady=true;}).catch(e=>{console.warn('lead worklet failed',e);});
+    const dataUrl='data:application/javascript;base64,'+btoa(unescape(encodeURIComponent(LEAD_WORKLET_SRC)));
+    load(dataUrl).catch(()=>{
+      try{ load(URL.createObjectURL(new Blob([LEAD_WORKLET_SRC],{type:'application/javascript'}))).catch(e=>console.warn('lead worklet failed',e)); }
+      catch(e){ console.warn('lead worklet blob error',e); }
+    });
   }catch(e){console.warn('lead worklet load error',e);}
 }
 // ── Drum sources — append-only IDs identical to JUCE (Parameters.h). The mode
@@ -3260,7 +3269,10 @@ function makeLeadToggle(parent,label,getV,setV,refreshArr){
 // Grouped drum SRC dropdown — clean, fast picker over the JUCE sound table.
 // Changing the source only swaps the channel's voice/buffer; the pattern grid is
 // untouched (source is a channel param, not per-step).
-function closeDrumMenu(){if(window._drumMenu){window._drumMenu.remove();window._drumMenu=null;}}
+function closeDrumMenu(){
+  if(window._drumMenuDoc){document.removeEventListener('pointerdown',window._drumMenuDoc,true);window._drumMenuDoc=null;}
+  if(window._drumMenu){window._drumMenu.remove();window._drumMenu=null;}
+}
 function makeDrumSrc(parent,chId,getV,setV,refreshArr){
   const tbl=DRUM_SOUNDS[chId];
   const wrap=document.createElement('div');
@@ -3270,6 +3282,7 @@ function makeDrumSrc(parent,chId,getV,setV,refreshArr){
   wrap.appendChild(lbl);wrap.appendChild(btn);parent.appendChild(wrap);
   const refresh=()=>{btn.textContent=drumSoundLabel(chId,getV());};
   (refreshArr||[]).push(refresh);
+  const choose=(id)=>{setV(id);refresh();closeDrumMenu();scheduleLivePatternSync&&scheduleLivePatternSync();};
   btn.addEventListener('click',(e)=>{
     e.stopPropagation();
     if(window._drumMenu){closeDrumMenu();return;}
@@ -3278,7 +3291,8 @@ function makeDrumSrc(parent,chId,getV,setV,refreshArr){
     tbl.forEach(([id,label,group])=>{
       if(group!==lastGroup){lastGroup=group;const h=document.createElement('div');h.className='drum-src-grp';h.textContent=group;menu.appendChild(h);}
       const it=document.createElement('div');it.className='drum-src-item'+(getV()===id?' sel':'');it.textContent=label;
-      it.addEventListener('click',(ev)=>{ev.stopPropagation();setV(id);refresh();closeDrumMenu();scheduleLivePatternSync&&scheduleLivePatternSync();});
+      // bind to pointerdown so selection lands before the outside-close handler.
+      it.addEventListener('pointerdown',(ev)=>{ev.preventDefault();ev.stopPropagation();choose(id);});
       menu.appendChild(it);
     });
     document.body.appendChild(menu);
@@ -3287,7 +3301,11 @@ function makeDrumSrc(parent,chId,getV,setV,refreshArr){
     let top=r.bottom+2; if(top+menu.offsetHeight>window.innerHeight-4)top=Math.max(4,r.top-menu.offsetHeight-2);
     menu.style.top=top+'px';
     window._drumMenu=menu;
-    setTimeout(()=>document.addEventListener('pointerdown',closeDrumMenu,{once:true}),0);
+    // Capture-phase outside-close: ignore pointerdowns landing inside the menu or
+    // on the trigger button (those are handled by the item / toggle logic).
+    const onDoc=(ev)=>{ if(menu.contains(ev.target)||wrap.contains(ev.target))return; closeDrumMenu(); };
+    window._drumMenuDoc=onDoc;
+    setTimeout(()=>document.addEventListener('pointerdown',onDoc,true),0);
   });
 }
  
@@ -3362,17 +3380,19 @@ function buildMixer(){
     vt.addEventListener('pointerup',()=>vA=false);vt.addEventListener('pointercancel',()=>vA=false);
     vt.addEventListener('wheel',e=>{e.preventDefault();const step=e.ctrlKey?.003:.03;setVol(vN-(e.deltaY>0?step:-step),true);},{passive:false});
  
-    // Knobs — 4 sections: VCO | VCF | ENV | FX
-    const SNAMES=['VCO','VCF','ENV','FX'];
-    // LEAD packs more controls into VCO (osc selectors + 5 knobs) and FX (sends +
-    // LFO), so give those two columns more width on that strip.
-    const SWIDTHS=(ch.id==='lead')?['34%','15%','17%','34%']:['35%','20%','20%','25%'];
+    // Knobs — 4 sections (VCO | VCF | ENV | FX) for most channels; the LEAD adds a
+    // dedicated 5th LFO section so the modulation controls have their own rack and
+    // the VCO frame isn't overcrowded.
+    const isLeadStrip=(ch.id==='lead');
+    const SNAMES=isLeadStrip?['VCO','VCF','ENV','FX','LFO']:['VCO','VCF','ENV','FX'];
+    const SWIDTHS=isLeadStrip?['30%','13%','15%','20%','22%']:['35%','20%','20%','25%'];
     const kg=document.createElement('div');kg.className='knobs';div.appendChild(kg);
     const updateChordKnobVis=null;
 
     const secSizes=KSEC_SIZES[ch.id];
+    const secCount=SNAMES.length;
     let pdOff=1; // start after VOL
-    for(let si=0;si<4;si++){
+    for(let si=0;si<secCount;si++){
       const nk=secSizes[si]; // knobs in this section
       const sec=document.createElement('div');sec.className='ksec';
       sec.style.flex='0 0 '+SWIDTHS[si];
@@ -3485,14 +3505,15 @@ function buildMixer(){
         }
       }
 
-      // LEAD LFO controls live at the end of the FX section (after the sends +
-      // LFO RATE/AMT knobs): MODE/WAVE pagers + SYNC/RETRIG/KEY toggles.
-      if(si===3 && ch.id==='lead'){
-        // LFO destination + waveform. SYNC/RETRIG/KEY toggles are kept in the
-        // engine at musical defaults (free / retrigger / smooth) and get UI in
-        // the layout pass — the FX column would clip with 5 extra controls.
-        makeLeadPager(body,'LFO',LEAD_LFO_MODES,()=>leadLfoMode,v=>leadLfoMode=v,uiRefresh);
-        makeLeadPager(body,'LWAV',LEAD_LFO_WAVES,()=>leadLfoWave,v=>leadLfoWave=v,uiRefresh);
+      // LEAD dedicated LFO section (si===4): RATE/AMT knobs are built by the knob
+      // loop above; here we add destination + waveform pagers and the
+      // SYNC / RETRIG / KEY toggles, all in their own rack.
+      if(si===4 && ch.id==='lead'){
+        makeLeadPager(body,'DEST',LEAD_LFO_MODES,()=>leadLfoMode,v=>leadLfoMode=v,uiRefresh);
+        makeLeadPager(body,'WAVE',LEAD_LFO_WAVES,()=>leadLfoWave,v=>leadLfoWave=v,uiRefresh);
+        makeLeadToggle(body,'SYN',()=>leadLfoSync,v=>leadLfoSync=v,uiRefresh);
+        makeLeadToggle(body,'RTG',()=>leadLfoRetrig,v=>leadLfoRetrig=v,uiRefresh);
+        makeLeadToggle(body,'KEY',()=>leadLfoKey,v=>leadLfoKey=v,uiRefresh);
       }
 
       // If only one element, center it instead of space-between
@@ -3608,8 +3629,8 @@ function initScale(){
   DESIGN_H=Math.max(window.innerHeight, MIN_H);
   // Lock CSS vars to fixed pixel values so transform scaling works correctly
   const r=document.documentElement.style;
-  r.setProperty('--MX',Math.floor(DESIGN_W*0.3333)+'px');
-  r.setProperty('--SQ',Math.floor(DESIGN_W*0.6667)+'px');
+  r.setProperty('--MX',Math.floor(DESIGN_W*0.40)+'px'); // rack (mixer) ~40%
+  r.setProperty('--SQ',Math.floor(DESIGN_W*0.60)+'px');
   const bodyH=DESIGN_H-60-30-30;
   r.setProperty('--BODY',bodyH+'px');
   r.setProperty('--RH',Math.floor(bodyH/VIS_CH)+'px');
