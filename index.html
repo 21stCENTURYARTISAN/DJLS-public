@@ -289,7 +289,7 @@ html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
   padding:1px;gap:0;border-right:1px solid transparent;position:relative;}
 .scell.bb{border-right:1px solid var(--b1);}
 .scell.db>.son{background:#1d2226;border-color:var(--b2);}
-.scell.db>.son.on{background:var(--accent);border-color:var(--accent);}
+.scell.db>.son.on{background:linear-gradient(to top, var(--accent) 0 calc(var(--vf,1)*100%), var(--accent-soft) calc(var(--vf,1)*100%) 100%);border-color:var(--accent-dim);}
 .scell.past{opacity:.18;}
 .scell.lend>.son{border-right:2px solid var(--accent);}
 
@@ -298,7 +298,10 @@ html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
   display:flex;align-items:center;justify-content:center;border-radius:2px;
   transition:background .08s,border-color .08s;}
 .son:hover{border-color:var(--b2);}
-.son.on{background:var(--accent);border-color:var(--accent);box-shadow:0 0 6px var(--accent-glow);}
+/* Lit step: the accent fills from the bottom up to the per-step velocity (--vf),
+   the remainder shows a dim accent tint — so step height/brightness reads as level. */
+.son.on{background:linear-gradient(to top, var(--accent) 0 calc(var(--vf,1)*100%), var(--accent-soft) calc(var(--vf,1)*100%) 100%);
+  border-color:var(--accent-dim);box-shadow:0 0 6px var(--accent-glow);}
 .son.cur{outline:2px solid var(--accent);outline-offset:-2px;}
  
 /* DEG display — drag/wheel only */
@@ -768,6 +771,10 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
     <span class="blbl">BPM</span>
     <span class="bval" id="bpmVal">132</span>
   </div>
+  <div class="bgrp ftr-bpm" id="swingDrag" title="Drag or wheel — swing (delays off-beat 16ths)">
+    <span class="blbl">SWING</span>
+    <span class="bval" id="swingVal">0%</span>
+  </div>
   <div class="dj-src-switch ftr-switch" title="Audio source">
     <button class="dj-src-btn active" id="djSrcLiveBtn" onclick="setDjAudioSource('live')">LIVE</button>
     <button class="dj-src-btn" id="djSrcDjBtn" onclick="setDjAudioSource('dj')">DJ</button>
@@ -1127,7 +1134,7 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
 ═══════════════════════════════════════════════════════════ */
 const CH=[
   {id:'kick', n:'KICK', c:'#ff3d5a'},
-  {id:'snare',n:'SNR',  c:'#ff8c00'},
+  {id:'snare',n:'SNARE',c:'#ff8c00'},
   {id:'hats', n:'HATS', c:'#ffe040'},
   {id:'bass', n:'BASS', c:'#00e5a0'},
   {id:'lead', n:'LEAD', c:'#40c8ff'},
@@ -1372,7 +1379,8 @@ class LeadVoiceProcessor extends AudioWorkletProcessor{
     if(this.lfoSync){const sl=Math.max(1,Math.min(32,Math.round(rate)));const sps=(60/Math.max(40,Math.min(240,this.bpm)))*0.25;this.lfoRate=1/(sl*sps);}else this.lfoRate=rate;
     this.lfoAmount=Math.max(0,Math.min(1,p.leadLfoAmt||0));this.lfoMode=Math.max(0,Math.min(2,p.leadLfoMode|0));this.lfoWave=Math.max(0,Math.min(3,p.leadLfoWave|0));this.lfoKey=p.leadLfoKey|0;
     this.retrig=(p.leadLfoRetrig===undefined)?1:(p.leadLfoRetrig|0);
-    this.ampScale=Math.max(0,Math.min(1.5,p.leadAmp||0.45))*(this.accent?1.4:1);this.wid=p.leadWid||0;this.pan=p.leadPan||0;
+    this.vel=(o.vel===undefined)?1:o.vel;
+    this.ampScale=Math.max(0,Math.min(1.5,p.leadAmp||0.45))*(this.accent?1.4:1)*this.vel;this.wid=p.leadWid||0;this.pan=p.leadPan||0;
   }
   startNote(){
     const p=this.p;let d=Math.max(0.1,p.leadDec||2.2);let atk=Math.max(0.005,p.leadAtk||0.01);const cn=this.cutoff/127;
@@ -1537,7 +1545,14 @@ function mkSeq(){
     deg: Array.from({length:8},()=>new Array(32).fill(0)),
     acc: Array.from({length:8},()=>new Array(32).fill(0)),
     cut: Array.from({length:8},()=>new Array(32).fill(0)),
+    vol: Array.from({length:8},()=>new Array(32).fill(1)), // per-step velocity 0..1
   };
+}
+// Ensure a loaded seqState has a valid vol grid (old patterns predate it).
+function ensureSeqVol(){
+  if(!Array.isArray(seqState.vol)||seqState.vol.length<8) seqState.vol=Array.from({length:8},()=>new Array(32).fill(1));
+  for(let ci=0;ci<8;ci++){ if(!Array.isArray(seqState.vol[ci])) seqState.vol[ci]=new Array(32).fill(1);
+    for(let s=0;s<32;s++){ const v=seqState.vol[ci][s]; if(typeof v!=='number'||!isFinite(v)) seqState.vol[ci][s]=1; } }
 }
 let seqState=mkSeq();
 // Default lengths: all 16 steps
@@ -2094,7 +2109,7 @@ function addChorus(source,amount,nodes,stopTime){
 }
  
 /* ── SYNTHS ─────────────────────────────────────────────── */
-function trigKickSample(t,outBus){
+function trigKickSample(t,outBus,vel=1){
   if(!ready||P.kickAmp<=.001)return;
   const buf=drumSamples.kick[kickMode];if(!buf)return; // id-keyed (JUCE KM_*)
   const nodes=[];
@@ -2108,7 +2123,7 @@ function trigKickSample(t,outBus){
   const dr=mkTanh(P.kickDrive,nodes);
   const subBoost=ctx.createBiquadFilter();subBoost.type='lowshelf';subBoost.frequency.value=80;subBoost.gain.value=P.kickSub*18;nodes.push(subBoost);
   const eqL=ctx.createBiquadFilter();eqL.type='lowshelf';eqL.frequency.value=Math.max(40,P.kickEqF);eqL.gain.value=(P.kickEqA||0)*18;nodes.push(eqL);
-  const peak=P.kickAmp*1.1;
+  const peak=P.kickAmp*1.1*vel;
   const att=Math.min(0.004,dur*0.1);
   const og=ctx.createGain();og.gain.value=0;nodes.push(og);
   og.gain.setValueAtTime(0,t);
@@ -2121,8 +2136,8 @@ function trigKickSample(t,outBus){
   src.start(t);src.stop(t+dur+.05);
   autoClean([src],nodes,2.2,0);
 }
-function trigKick(t,outBus){
-  if(kickMode>0){trigKickSample(t,outBus);return;}
+function trigKick(t,outBus,vel=1){
+  if(kickMode>0){trigKickSample(t,outBus,vel);return;}
   if(!ready||P.kickAmp<=.001)return;
   const nodes=[];
   const sf=Math.max(20,440*Math.pow(2,(P.kickPitch-69)/12));
@@ -2150,8 +2165,8 @@ function trigKick(t,outBus){
   const eqL=ctx.createBiquadFilter();eqL.type='lowshelf';eqL.frequency.value=Math.max(40,P.kickEqF);eqL.gain.value=(P.kickEqA||0)*18;nodes.push(eqL);
   const og=ctx.createGain();og.gain.value=0;nodes.push(og);
   og.gain.setValueAtTime(0,t);
-  og.gain.linearRampToValueAtTime(P.kickAmp*1.1,t+.002);
-  og.gain.setValueAtTime(P.kickAmp*1.1,t+totalDur);
+  og.gain.linearRampToValueAtTime(P.kickAmp*1.1*vel,t+.002);
+  og.gain.setValueAtTime(P.kickAmp*1.1*vel,t+totalDur);
   og.gain.linearRampToValueAtTime(0,t+totalDur+.05);
   bo.connect(be);sub.connect(subE);cs.connect(cf);cf.connect(ce);
   const dst=outBus||chBusses[0];
@@ -2162,7 +2177,7 @@ function trigKick(t,outBus){
   autoClean([bo,sub,cs],nodes,2.2,0);
 }
  
-function trigSnareSample(t,outBus){
+function trigSnareSample(t,outBus,vel=1){
   if(!ready||P.snareAmp<=.001)return;
   const buf=drumSamples.snare[snareMode];if(!buf)return; // id-keyed (JUCE SM_*)
   const nodes=[];
@@ -2183,9 +2198,9 @@ function trigSnareSample(t,outBus){
   // Output env - whole voice fade to zero
   const og=ctx.createGain();nodes.push(og);
   og.gain.setValueAtTime(0,t);
-  og.gain.linearRampToValueAtTime(P.snareAmp,t+.002);
+  og.gain.linearRampToValueAtTime(P.snareAmp*vel,t+.002);
   const fadeStart=t+Math.max(0.01,dur-0.01);
-  og.gain.setValueAtTime(P.snareAmp,fadeStart);
+  og.gain.setValueAtTime(P.snareAmp*vel,fadeStart);
   og.gain.linearRampToValueAtTime(0,t+dur-0.002);
   const dst=outBus||chBusses[1];
   src.connect(env);env.connect(dr);dr.connect(eqM);eqM.connect(og);og.connect(dst);
@@ -2193,8 +2208,8 @@ function trigSnareSample(t,outBus){
   src.start(t);
   autoClean([src],nodes,2.2,1);
 }
-function trigSnare(t,outBus){
-  if(snareMode>0){trigSnareSample(t,outBus);return;}
+function trigSnare(t,outBus,vel=1){
+  if(snareMode>0){trigSnareSample(t,outBus,vel);return;}
   if(!ready||P.snareAmp<=.001)return;
   const nodes=[];
   const d=Math.max(.04,P.snareDecay);
@@ -2220,8 +2235,8 @@ function trigSnare(t,outBus){
   const eqM=ctx.createBiquadFilter();eqM.type='peaking';eqM.frequency.value=Math.max(200,P.snrEqF);eqM.Q.value=1.0;eqM.gain.value=(P.snrEqA||0)*18;nodes.push(eqM);
   const og=ctx.createGain();nodes.push(og);
   og.gain.setValueAtTime(0,t);
-  og.gain.linearRampToValueAtTime(P.snareAmp,t+.002);
-  og.gain.setValueAtTime(P.snareAmp,t+d+.08);
+  og.gain.linearRampToValueAtTime(P.snareAmp*vel,t+.002);
+  og.gain.setValueAtTime(P.snareAmp*vel,t+d+.08);
   og.gain.linearRampToValueAtTime(0,t+d+.12);
   const dst=outBus||chBusses[1];
   be.connect(dr);ne.connect(dr);dr.connect(eqM);eqM.connect(og);og.connect(dst);
@@ -2232,7 +2247,7 @@ function trigSnare(t,outBus){
 
 // Hats: deg=0→16th(1 hit), deg=1→32nd(2 hits=rolls), deg=2→64th (triplet feel)
 // ACC is linked to knob 2 (O.DC) value — when ACC on, use open hat sound
-function trigHatSample(t,subdiv,isAcc,outBus){
+function trigHatSample(t,subdiv,isAcc,outBus,vel=1){
   if(!ready||P.hatsAmp<=.001)return;
   const buf=drumSamples.hats[hatsMode];if(!buf)return; // id-keyed (JUCE HM_*)
   const stepDuration=sDur();
@@ -2250,7 +2265,7 @@ function trigHatSample(t,subdiv,isAcc,outBus){
     const eqH=ctx.createBiquadFilter();eqH.type='highshelf';eqH.frequency.value=Math.max(2000,P.hatEqF);eqH.gain.value=(P.hatEqA||0)*18;nodes.push(eqH);
     const en=ctx.createGain();nodes.push(en);
     const hatk=Math.max(.001,P.hatAtk||.003);
-    en.gain.setValueAtTime(0,tt);en.gain.linearRampToValueAtTime(Math.max(.0001,P.hatsAmp*.92),tt+hatk);
+    en.gain.setValueAtTime(0,tt);en.gain.linearRampToValueAtTime(Math.max(.0001,P.hatsAmp*.92*vel),tt+hatk);
     en.gain.exponentialRampToValueAtTime(.0001,tt+d);
     en.gain.linearRampToValueAtTime(0,tt+Math.min(d+0.05, buf.duration-0.002));
     src.connect(bp);bp.connect(eqH);eqH.connect(en);
@@ -2262,8 +2277,8 @@ function trigHatSample(t,subdiv,isAcc,outBus){
     autoClean([src],nodes,2.2,2);
   });
 }
-function trigHat(t,subdiv,isAcc,outBus){
-  if(hatsMode>0){trigHatSample(t,subdiv,isAcc,outBus);return;}
+function trigHat(t,subdiv,isAcc,outBus,vel=1){
+  if(hatsMode>0){trigHatSample(t,subdiv,isAcc,outBus,vel);return;}
   if(!ready||P.hatsAmp<=.001)return;
   // subdiv: 0=normal 16th, 1=roll(fire twice), 2=triplet roll(fire 3 times)
   const stepDuration=sDur();
@@ -2292,7 +2307,7 @@ function trigHat(t,subdiv,isAcc,outBus){
     cw.curve=_hatCrushCurves[crushKey];
     const en=ctx.createGain();nodes.push(en);
     const hatk=Math.max(.001,P.hatAtk||.003);
-    en.gain.setValueAtTime(0,tt);en.gain.linearRampToValueAtTime(Math.max(.0001,P.hatsAmp*.92),tt+hatk);
+    en.gain.setValueAtTime(0,tt);en.gain.linearRampToValueAtTime(Math.max(.0001,P.hatsAmp*.92*vel),tt+hatk);
     en.gain.exponentialRampToValueAtTime(.0001,tt+d);
     en.gain.linearRampToValueAtTime(0,tt+d+0.05);
     ns.connect(bp);bp.connect(eqH);eqH.connect(cg);cg.connect(cw);cw.connect(en);
@@ -2305,7 +2320,7 @@ function trigHat(t,subdiv,isAcc,outBus){
   });
 }
  
-function trigBass(t,freq,cs,outBus){
+function trigBass(t,freq,cs,outBus,vel=1){
   if(!ready||P.bassAmp<=.001)return;
   const nodes=[];
   const dst=outBus||chBusses[3];
@@ -2331,7 +2346,7 @@ function trigBass(t,freq,cs,outBus){
   ae.gain.setValueAtTime(0,t);ae.gain.linearRampToValueAtTime(1,t+.025);
   ae.gain.exponentialRampToValueAtTime(.0001,t+d+.08);
   const dr=mkTanh(P.bassDrv*1.4,nodes);
-  const og=ctx.createGain();og.gain.value=P.bassAmp*.88;nodes.push(og);
+  const og=ctx.createGain();og.gain.value=P.bassAmp*.88*vel;nodes.push(og);
   [o1,o2,o3].forEach(o=>o.connect(mx));mx.connect(dr);dr.connect(la[0]);la[3].connect(ae);ae.connect(og);
   const bStopT=t+d+.25;
   const cho=addChorus(og,P.bassCho,nodes,bStopT);cho.connect(dst);
@@ -2489,7 +2504,7 @@ function makePWMWave(duty){
   return ctx.createPeriodicWave(real,imag,{disableNormalization:false});
 }
 
-function trigArp(t,freq,cs,outBus){
+function trigArp(t,freq,cs,outBus,vel=1){
   if(!ready||P.arpAmp<=.001)return;
   const nodes=[];
   const dst=outBus||chBusses[5];
@@ -2507,7 +2522,7 @@ function trigArp(t,freq,cs,outBus){
   const pk=Math.min(18e3,Math.max(30,P.arpCut+(cs/127)*5000+P.arpEnv));
   const la=mkLad(pk,P.arpRes,nodes);swLad(la,pk,P.arpRes,t,Math.max(30,P.arpCut),t+d);
   const ae=ctx.createGain();nodes.push(ae);
-  ae.gain.setValueAtTime(0,t);ae.gain.linearRampToValueAtTime(P.arpAmp*.82,t+.014);
+  ae.gain.setValueAtTime(0,t);ae.gain.linearRampToValueAtTime(P.arpAmp*.82*vel,t+.014);
   ae.gain.exponentialRampToValueAtTime(.0001,t+d+.03);
   oc.connect(la[0]);la[3].connect(ae);
   const aStopT=t+d+.08;
@@ -2568,10 +2583,10 @@ function trigPad(t,freq,cs,outBus){
 // node, capture the current params, and route it through the channel bus + the
 // shared chorus/delay/reverb sends. Falls back to a native MIX voice if the
 // worklet module didn't load (e.g. worklets blocked in an embed).
-function trigLead2(t,freq,cs,acc,outBus){
+function trigLead2(t,freq,cs,acc,outBus,vel=1){
   if(!ready||P.leadAmp<=.001)return;
   const dst=outBus||chBusses[4];
-  if(!leadWorkletReady){ trigLeadFallback(t,freq,cs,acc,dst); return; }
+  if(!leadWorkletReady){ trigLeadFallback(t,freq,cs,acc,dst,vel); return; }
   const nodes=[];
   const sc=SCALES[scaleKey];
   const p={
@@ -2584,8 +2599,8 @@ function trigLead2(t,freq,cs,acc,outBus){
   let node;
   try{
     node=new AudioWorkletNode(ctx,'lead-voice',{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[2],
-      processorOptions:{when:t,freq:Math.max(18,freq),cutoff:cs,accent:!!acc,sustained:false,bpm,scaleSteps:sc.steps,scaleSize:sc.size,p}});
-  }catch(e){ trigLeadFallback(t,freq,cs,acc,dst); return; }
+      processorOptions:{when:t,freq:Math.max(18,freq),cutoff:cs,accent:!!acc,sustained:false,vel,bpm,scaleSteps:sc.steps,scaleSize:sc.size,p}});
+  }catch(e){ trigLeadFallback(t,freq,cs,acc,dst,vel); return; }
   const d=Math.max(.1,P.leadDec);
   const cho=addChorus(node,P.leadCho,nodes,t+d+1.6);cho.connect(dst);
   const dg=mkDly(P.leadDly,nodes,dst);if(dg)node.connect(dg);
@@ -2594,7 +2609,7 @@ function trigLead2(t,freq,cs,acc,outBus){
   setTimeout(()=>{ try{node.disconnect();}catch(e){} nodes.forEach(nn=>{try{nn.disconnect();}catch(e){}}); }, life*1000);
 }
 
-function trigLeadFallback(t,freq,cs,acc,dst){
+function trigLeadFallback(t,freq,cs,acc,dst,vel=1){
   // Native MIX-only approximation (no hard-sync / exp-FM) if the worklet failed.
   const nodes=[];
   const fSafe=Math.max(18,freq);
@@ -2611,7 +2626,7 @@ function trigLeadFallback(t,freq,cs,acc,dst){
   const la=mkLad(pk,P.leadRes2||0,nodes);swLad(la,pk,P.leadRes2||0,t,Math.max(30,P.leadCut||900),t+d*0.6);
   const ae=ctx.createGain();nodes.push(ae);
   const atk=Math.max(.005,P.leadAtk||.01);
-  ae.gain.setValueAtTime(0,t);ae.gain.linearRampToValueAtTime((P.leadAmp||.45)*(acc?1.4:1),t+atk);
+  ae.gain.setValueAtTime(0,t);ae.gain.linearRampToValueAtTime((P.leadAmp||.45)*(acc?1.4:1)*vel,t+atk);
   ae.gain.exponentialRampToValueAtTime(.0001,t+d+.06);
   mx.connect(la[0]);la[3].connect(ae);
   const stopT=t+d+.2;
@@ -2654,12 +2669,13 @@ function fireNote(ci,s,t){
   if(!anySolo&&muteState[ci])return;
   if(!seqState.on[ci][s])return;
   const deg=seqState.deg[ci][s],acc=seqState.acc[ci][s],cut=seqState.cut[ci][s];
-  if(ci===0)trigKick(t);
-  else if(ci===1)deferTrigger(trigSnare,t);
-  else if(ci===2)trigHat(t,deg,acc); // deg=subdiv, acc=open/closed
-  else if(ci===3)trigBass(t,d2f(deg,'bassOct'),cut);
-  else if(ci===4)trigLead2(t,d2f(deg,'leadOct'),cut,acc);
-  else if(ci===5)trigArp(t,d2f(deg,'arpOct'),cut);
+  const vol=(seqState.vol&&seqState.vol[ci]&&typeof seqState.vol[ci][s]==='number')?seqState.vol[ci][s]:1;
+  if(ci===0)trigKick(t,undefined,vol);
+  else if(ci===1)deferTrigger((tt)=>trigSnare(tt,undefined,vol),t);
+  else if(ci===2)trigHat(t,deg,acc,undefined,vol); // deg=subdiv, acc=open/closed
+  else if(ci===3)trigBass(t,d2f(deg,'bassOct'),cut,undefined,vol);
+  else if(ci===4)trigLead2(t,d2f(deg,'leadOct'),cut,acc,undefined,vol);
+  else if(ci===5)trigArp(t,d2f(deg,'arpOct'),cut,undefined,vol);
   // ci 6 (PAD) / 7 (TEABAG) are parked — never fired (VIS_CH=6).
   const ms=Math.max(0,(t-ctx.currentTime)*1000);
   const volKey=PD[CH[ci].id][0][1];
@@ -2683,8 +2699,11 @@ function scheduler(){
       for(let ci=0;ci<VIS_CH;ci++){
         const len=Math.max(1,chLen[ci]||1);
         const s=chStep[ci]%len;
+        // Swing: delay the off-beat (odd) 16ths by up to half a step. Only the
+        // note's playback time shifts — the master step clock (nst) is untouched.
+        const so=((s&1)&&seqSwing>0)?sDur()*seqSwing*0.5:0;
         if(!(window._djIsSourceDj&&window._djIsSourceDj())){
-          try{fireNote(ci,s,nst);}catch(e){reportRuntimeError('ch '+(ci+1),e);}
+          try{fireNote(ci,s,nst+so);}catch(e){reportRuntimeError('ch '+(ci+1),e);}
         }
       }
       for(let ci=0;ci<8;ci++)chStep[ci]++;
@@ -3053,7 +3072,24 @@ function setMsg(m){const el=document.getElementById('smsg');if(el)el.textContent
   el.addEventListener('pointercancel',()=>bA=false);
   el.addEventListener('wheel',e=>{e.preventDefault();setBPM(bpm-(e.deltaY>0?1:-1));},{passive:false});
 }
- 
+
+/* SWING — global groove (delays off-beat 16ths). Drag/wheel like BPM. */
+let seqSwing=0;
+function setSwing(v){
+  seqSwing=Math.max(0,Math.min(0.75,v));
+  const el=document.getElementById('swingVal');
+  if(el)el.textContent=Math.round(seqSwing/0.75*100)+'%';
+}
+{
+  const el=document.getElementById('swingDrag');
+  let sA=false,sY=0,sS=0;
+  el.addEventListener('pointerdown',e=>{sA=true;sY=e.clientY;sS=seqSwing;el.setPointerCapture(e.pointerId);e.preventDefault();});
+  el.addEventListener('pointermove',e=>{if(sA){setSwing(sS-(e.clientY-sY)*.004);scheduleLivePatternSync&&scheduleLivePatternSync();}});
+  el.addEventListener('pointerup',()=>sA=false);
+  el.addEventListener('pointercancel',()=>sA=false);
+  el.addEventListener('wheel',e=>{e.preventDefault();setSwing(seqSwing+(e.deltaY>0?-0.02:0.02));scheduleLivePatternSync&&scheduleLivePatternSync();},{passive:false});
+}
+
 /* ═══════════════════════════════════════════════════════════
    PARAM POPUP
 ═══════════════════════════════════════════════════════════ */
@@ -3397,16 +3433,19 @@ function buildMixer(){
     for(let si=0;si<secCount;si++){
       const nk=secSizes[si]; // knobs in this section
       const sec=document.createElement('div');sec.className='ksec';
-      sec.style.flex='0 0 '+SWIDTHS[si];
+      sec.style.flex='0 0 '+SWIDTHS[si]; // lead keeps fixed widths; non-lead reset to proportional below
       const title=document.createElement('div');title.className='ksec-title';title.textContent=(si===1&&ci<3)?'EQ':SNAMES[si];
       sec.appendChild(title);
       const body=document.createElement('div');body.className='ksec-body';
-      // Unified horizontal layout: 10px padding from borders, space-between for internal items.
-      // The LEAD strip carries many more controls per section, so it wraps to keep
-      // everything reachable (laid out tighter; refined further in the visual pass).
-      const leadDense=(ch.id==='lead');
-      body.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:'+(leadDense?'flex-start':'space-between')+';gap:'+(leadDense?'3px 5px':'0')+';padding:0 '+(leadDense?'6px':'10px')+';flex:1;min-width:0;flex-wrap:'+(leadDense?'wrap':'nowrap')+';align-content:center;';
-      const kSzC=leadDense?Math.max(11,Math.round(kSz*0.72)):kSz;
+      // Every section distributes its controls with space-evenly so the gap before /
+      // between / after the knobs is identical regardless of how many it holds.
+      // Paired with the proportional section widths set after the body is built
+      // (flex-grow ∝ control count), this gives a uniform knob pitch down the whole
+      // strip — the hardware-grid look. Lead now shares this exact rhythm; it just
+      // packs more controls, so its knobs render a touch smaller (kSzC) and its VCO
+      // splits the two oscillators onto their own rows.
+      body.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:space-evenly;gap:3px;padding:0 4px;flex:1;min-width:0;flex-wrap:nowrap;align-content:center;';
+      const kSzC=isLeadStrip?Math.max(11,Math.round(kSz*0.72)):kSz;
 
       // VCO section: add pagers/steppers directly to body
       if(si===0){
@@ -3483,19 +3522,44 @@ function buildMixer(){
           wU.addEventListener('click',()=>cycleW(1));wD.addEventListener('click',()=>cycleW(-1));
           uiRefresh.push(()=>{wv.textContent=SYNTH_WAVES[bassWT];});
         }
-        // LEAD (new 2-osc) VCO: OCT + OSC1/OSC2 wave + MODE pagers
+        // LEAD (2-osc) VCO — split into two oscillator rows. Shared OCT on the far
+        // left; OSC1 over OSC2 in the middle, each row = WAVE pager · COARSE stepper
+        // (semitones) · FINE knob; shared MODE pager over AMT knob on the right. The
+        // generic knob loop is skipped for this section (see the skip below) — every
+        // control is built explicitly here so CRS1/CRS2 are steppers, not knobs.
         if(ch.id==='lead'){
           const octKey=OCT_KEYS[ch.id];
-          makeStepper(body,'OCT',()=>Math.round(OCT[octKey]),d=>{OCT[octKey]=Math.max(0,Math.min(5,Math.round(OCT[octKey])+d));return Math.round(OCT[octKey]);});
-          makeLeadPager(body,'OS1',LEAD_WAVES,()=>leadOsc1Wave,v=>leadOsc1Wave=v,uiRefresh);
-          makeLeadPager(body,'OS2',LEAD_WAVES,()=>leadOsc2Wave,v=>leadOsc2Wave=v,uiRefresh);
-          makeLeadPager(body,'MODE',LEAD_OSC_MODES,()=>leadOscMode,v=>leadOscMode=v,uiRefresh);
+          makeStepper(body,'OCT',()=>Math.round(OCT[octKey]),d=>{OCT[octKey]=Math.max(0,Math.min(5,Math.round(OCT[octKey])+d));scheduleLivePatternSync&&scheduleLivePatternSync();return Math.round(OCT[octKey]);});
+          // Middle: one row per oscillator — WAVE · COARSE · FINE, columns aligned.
+          const oscCol=document.createElement('div');
+          oscCol.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;';
+          const mkOscRow=(wl,getW,setW,cl,cKey,finPd)=>{
+            const row=document.createElement('div');
+            row.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;';
+            makeLeadPager(row,wl,LEAD_WAVES,getW,setW,uiRefresh);
+            makeStepper(row,cl,()=>Math.round(P[cKey]),d=>{P[cKey]=Math.max(-24,Math.min(24,Math.round(P[cKey])+d));scheduleLivePatternSync&&scheduleLivePatternSync();return Math.round(P[cKey]);});
+            makeKnob(row,finPd[0],finPd[1],finPd[2],finPd[3],finPd[4],ci,kSzC);
+            oscCol.appendChild(row);
+          };
+          mkOscRow('OS1',()=>leadOsc1Wave,v=>leadOsc1Wave=v,'CRS1','leadO1Coarse',PD.lead[2]);
+          mkOscRow('OS2',()=>leadOsc2Wave,v=>leadOsc2Wave=v,'CRS2','leadO2Coarse',PD.lead[4]);
+          body.appendChild(oscCol);
+          // Right: shared MODE pager over AMT knob.
+          const modCol=document.createElement('div');
+          modCol.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;';
+          makeLeadPager(modCol,'MODE',LEAD_OSC_MODES,()=>leadOscMode,v=>leadOscMode=v,uiRefresh);
+          const amtPd=PD.lead[5];
+          makeKnob(modCol,amtPd[0],amtPd[1],amtPd[2],amtPd[3],amtPd[4],ci,kSzC);
+          body.appendChild(modCol);
         }
         // (MIDI note-input + audio-in toggles removed — sequencer-focused demo)
       }
 
-      // Append Knobs directly to body in a single row
-      if(!(si===0 && ch.id==='chord')){
+      // Append Knobs directly to body in a single row. The chord/lead VCO and the
+      // lead LFO sections are fully custom-built (the LFO splits into two rows), so
+      // the generic loop skips them (pdOff still advances by nk so later sections map).
+      const leadCustomSec=(si===0 && (ch.id==='chord'||ch.id==='lead'))||(si===1 && ch.id==='lead');
+      if(!leadCustomSec){
         for(let ki=0;ki<nk;ki++){
           const pi=pdOff+ki;
           const[l,k,mn,mx2,df]=PD[ch.id][pi];
@@ -3507,20 +3571,52 @@ function buildMixer(){
         }
       }
 
-      // LEAD dedicated LFO section (si===1, between VCO and VCF): RATE/AMT knobs
-      // are built by the knob loop above; here we add destination + waveform
-      // pagers and the SYNC / RETRIG / KEY toggles, all in their own rack.
+      // LEAD dedicated LFO section (si===1, between VCO and VCF) — two rows. Top row:
+      // LFOR · LFOA rate/amount knobs + DEST · WAVE pagers. Second row: the SYNC /
+      // RETRIG / KEY toggles on their own. Built fully custom (generic loop skips it).
       if(si===1 && ch.id==='lead'){
-        makeLeadPager(body,'DEST',LEAD_LFO_MODES,()=>leadLfoMode,v=>leadLfoMode=v,uiRefresh);
-        makeLeadPager(body,'WAVE',LEAD_LFO_WAVES,()=>leadLfoWave,v=>leadLfoWave=v,uiRefresh);
-        makeLeadToggle(body,'SYN',()=>leadLfoSync,v=>leadLfoSync=v,uiRefresh);
-        makeLeadToggle(body,'RTG',()=>leadLfoRetrig,v=>leadLfoRetrig=v,uiRefresh);
-        makeLeadToggle(body,'KEY',()=>leadLfoKey,v=>leadLfoKey=v,uiRefresh);
+        body.style.flexDirection='column';
+        body.style.justifyContent='center';
+        body.style.gap='6px';
+        const topRow=document.createElement('div');
+        topRow.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;width:100%;';
+        const lr=PD.lead[pdOff],la=PD.lead[pdOff+1];
+        makeKnob(topRow,lr[0],lr[1],lr[2],lr[3],lr[4],ci,kSzC);
+        makeKnob(topRow,la[0],la[1],la[2],la[3],la[4],ci,kSzC);
+        makeLeadPager(topRow,'DEST',LEAD_LFO_MODES,()=>leadLfoMode,v=>leadLfoMode=v,uiRefresh);
+        makeLeadPager(topRow,'WAVE',LEAD_LFO_WAVES,()=>leadLfoWave,v=>leadLfoWave=v,uiRefresh);
+        body.appendChild(topRow);
+        const botRow=document.createElement('div');
+        botRow.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:center;gap:12px;width:100%;';
+        makeLeadToggle(botRow,'SYN',()=>leadLfoSync,v=>leadLfoSync=v,uiRefresh);
+        makeLeadToggle(botRow,'RTG',()=>leadLfoRetrig,v=>leadLfoRetrig=v,uiRefresh);
+        makeLeadToggle(botRow,'KEY',()=>leadLfoKey,v=>leadLfoKey=v,uiRefresh);
+        body.appendChild(botRow);
       }
 
-      // If only one element, center it instead of space-between
+      // If only one element, center it
       if(body.children.length===1) body.style.justifyContent='center';
-      
+
+      // Proportional section width: flex-grow ∝ the number of controls in the body
+      // (knobs + pagers / steppers / dropdowns) with a zero flex-basis, so each
+      // section's width tracks its content. Combined with space-evenly above, every
+      // knob occupies the same horizontal slot down the strip → uniform, symmetric
+      // hardware-grid spacing. Applies to lead too so it matches the other strips;
+      // its custom 2-row VCO counts as ~5 columns wide.
+      let wUnits;
+      if(isLeadStrip && si===0){
+        wUnits=5;
+      }else if(isLeadStrip && si===1){
+        wUnits=4; // LFO: two rows, ~4 columns wide on top
+      }else{
+        // Weight each control by its rough horizontal footprint: knobs, pagers and
+        // steppers are all ~1 slot; the drum SRC dropdown is wider (~1.8) so its
+        // VCO column gets enough room and never clips the source label.
+        wUnits=0;
+        for(const cEl of body.children){wUnits+=cEl.querySelector('.drum-src-btn')?1.8:1;}
+      }
+      sec.style.flex=Math.max(1,wUnits)+' 1 0';
+
       pdOff+=nk;
       sec.appendChild(body);
       kg.appendChild(sec);
@@ -3803,7 +3899,27 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('anlzClose').onclick=()=>toggleAnlz();
 });
 
+// JUCE step-spread modifier: Shift = ALL active steps; Ctrl/Cmd = every 4th step
+// sharing the clicked step's phase. Both confined to the channel's loop length.
+function seqSpreadSteps(ci,anchor,e){
+  const len=Math.max(1,Math.min(32,chLen[ci]||1)),out=[];
+  if(e&&e.shiftKey){ for(let s=0;s<len;s++)out.push(s); return out; }
+  if(e&&(e.ctrlKey||e.metaKey)){ for(let s=0;s<len;s++) if((s&3)===(anchor&3))out.push(s); return out; }
+  return [anchor];
+}
+// Push seqState for one step back into its DOM cell (on-fill height = velocity).
+function refreshSeqCell(ci,s){
+  const c=stepCells[ci]&&stepCells[ci][s]; if(!c)return;
+  const on=!!seqState.on[ci][s];
+  c.son.classList.toggle('on',on);
+  c.son.style.setProperty('--vf', on?(seqState.vol[ci][s]):1);
+  if(c.degEl)c.degEl.textContent=seqState.deg[ci][s];
+  if(c.acc)c.acc.classList.toggle('on',!!seqState.acc[ci][s]);
+  if(c.cut)c.cut.textContent=seqState.cut[ci][s];
+}
+
 function buildSeqRows(){
+  ensureSeqVol();
   sonToCell.clear();
   seqRefresh=[]; // clear stale seq callbacks
   const wrap=document.getElementById('seqRows');wrap.innerHTML='';
@@ -3867,42 +3983,61 @@ function buildSeqRows(){
       cell.className='scell'+(s%4===3?' bb':'')+(s%4===0?' db':'')+(past?' past':'')+(lend?' lend':'');
       cell.style.cssText=`width:${CW}px;height:${chH}px;--cc:${ch.c};`;
  
-      // ── ON button ──────────────────────────────────────────
+      // ── ON button (toggle / paint / per-step velocity) ─────
       const son=document.createElement('div');
       son.className='son'+(seqState.on[ci][s]?' on':'');
       son.style.cssText=`height:${onH}px;min-height:${onH}px;width:100%;flex-shrink:0;--cc:${ch.c};`;
+      son.style.setProperty('--vf', seqState.on[ci][s]?seqState.vol[ci][s]:1);
       sonToCell.set(son,{ci,s});
- 
+
+      let sonMode=null; // 'vol' (drag fill-top) | 'paint' (toggle)
       son.addEventListener('pointerdown',e=>{
-        if(e.button!==0)return;
+        if(e.button!==0)return; // right-button → cell contextmenu sets loop length
         e.preventDefault();
-        paintVal=seqState.on[ci][s]?0:1;
-        paintActive=true;
-        seqState.on[ci][s]=paintVal;
-        son.classList.toggle('on',paintVal===1);
-        son.setPointerCapture(e.pointerId);
-      });
-      son.addEventListener('pointermove',e=>{
-        if(!paintActive)return;
-        const els=document.elementsFromPoint(e.clientX,e.clientY);
-        for(const el of els){
-          if(el!==son&&el.classList.contains('son')){
-            const info=sonToCell.get(el);
-            if(info&&seqState.on[info.ci][info.s]!==paintVal){
-              seqState.on[info.ci][info.s]=paintVal;
-              el.classList.toggle('on',paintVal===1);
-            }
-          }
+        try{son.setPointerCapture(e.pointerId);}catch(_){}
+        const rect=son.getBoundingClientRect();
+        const isOn=!!seqState.on[ci][s];
+        const offY=e.clientY-rect.top;
+        const fillTopY=(1-seqState.vol[ci][s])*rect.height;
+        const grip=Math.max(8,rect.height*0.3);
+        if(isOn && e.pointerType!=='touch' && offY<=fillTopY+grip){
+          // Grab the top of the fill → drag down to lower this step's velocity.
+          sonMode='vol';
+          const nv=Math.max(0,Math.min(1,1-offY/rect.height));
+          seqState.vol[ci][s]=nv; son.style.setProperty('--vf',nv);
+        } else {
+          sonMode='paint';
+          paintVal=isOn?0:1;
+          seqSpreadSteps(ci,s,e).forEach(ss=>{
+            seqState.on[ci][ss]=paintVal;
+            if(paintVal && !(seqState.vol[ci][ss]>0.001)) seqState.vol[ci][ss]=1; // re-enabling a zeroed step restores full vol
+            refreshSeqCell(ci,ss);
+          });
         }
       });
-      son.addEventListener('pointerup',()=>{paintActive=false;});
-      son.addEventListener('pointercancel',()=>{paintActive=false;});
-      son.addEventListener('touchstart',e=>{
+      son.addEventListener('pointermove',e=>{
+        if(!sonMode)return;
+        if(sonMode==='vol'){
+          // paint velocity across on-steps as the cursor slides along the row
+          const el=document.elementFromPoint(e.clientX,e.clientY);
+          if(el&&el.classList.contains('son')){
+            const info=sonToCell.get(el),r=el.getBoundingClientRect();
+            const nv=Math.max(0,Math.min(1,1-(e.clientY-r.top)/r.height));
+            if(info&&seqState.on[info.ci][info.s]){ seqState.vol[info.ci][info.s]=nv; refreshSeqCell(info.ci,info.s); }
+          }
+        } else {
+          const els=document.elementsFromPoint(e.clientX,e.clientY);
+          for(const el of els){ if(el.classList.contains('son')){ const info=sonToCell.get(el);
+            if(info){ seqSpreadSteps(info.ci,info.s,e).forEach(ss=>{ if(seqState.on[info.ci][ss]!==paintVal){ seqState.on[info.ci][ss]=paintVal; if(paintVal&&!(seqState.vol[info.ci][ss]>0.001))seqState.vol[info.ci][ss]=1; refreshSeqCell(info.ci,ss);} }); } break; } }
+        }
+      });
+      son.addEventListener('pointerup',()=>{sonMode=null;});
+      son.addEventListener('pointercancel',()=>{sonMode=null;});
+      son.addEventListener('wheel',e=>{
+        if(!seqState.on[ci][s])return;
         e.preventDefault();
-        paintVal=seqState.on[ci][s]?0:1;
-        paintActive=true;
-        seqState.on[ci][s]=paintVal;
-        son.classList.toggle('on',paintVal===1);
+        const nv=Math.max(0,Math.min(1,seqState.vol[ci][s]+(e.deltaY>0?-0.05:0.05)));
+        seqSpreadSteps(ci,s,e).forEach(ss=>{ if(seqState.on[ci][ss]){ seqState.vol[ci][ss]=nv; refreshSeqCell(ci,ss);} });
       },{passive:false});
  
       // ── DEG drag/wheel ─────────────────────────────────────
@@ -3917,23 +4052,25 @@ function buildSeqRows(){
  
       const getDegMin=()=>ci===2?0:-(sz-1);
       const getDegMax=()=>ci===2?2:(sz-1);
-      let dA=false,dY=0,dS=0;
+      let dA=false,dY=0,dS=0,dMods=null;
       degWrap.addEventListener('pointerdown',e=>{
-        dA=true;dY=e.clientY;dS=seqState.deg[ci][s];
-        degWrap.setPointerCapture(e.pointerId);e.preventDefault();
+        if(e.button!==0)return;
+        dA=true;dY=e.clientY;dS=seqState.deg[ci][s];dMods={shiftKey:e.shiftKey,ctrlKey:e.ctrlKey,metaKey:e.metaKey};
+        try{degWrap.setPointerCapture(e.pointerId);}catch(_){}
+        e.preventDefault();
       });
       degWrap.addEventListener('pointermove',e=>{
         if(!dA)return;
         const delta=Math.round((dY-e.clientY)/8);
         const nv=Math.max(getDegMin(),Math.min(getDegMax(),dS+delta));
-        if(nv!==seqState.deg[ci][s]){seqState.deg[ci][s]=nv;degEl.textContent=nv;}
+        seqSpreadSteps(ci,s,dMods).forEach(ss=>{ if(seqState.deg[ci][ss]!==nv){seqState.deg[ci][ss]=nv;refreshSeqCell(ci,ss);} });
       });
       degWrap.addEventListener('pointerup',()=>dA=false);
       degWrap.addEventListener('pointercancel',()=>dA=false);
       degWrap.addEventListener('wheel',e=>{
         e.preventDefault();
         const nv=Math.max(getDegMin(),Math.min(getDegMax(),seqState.deg[ci][s]+(e.deltaY>0?-1:1)));
-        seqState.deg[ci][s]=nv;degEl.textContent=nv;
+        seqSpreadSteps(ci,s,e).forEach(ss=>{seqState.deg[ci][ss]=nv;refreshSeqCell(ci,ss);});
       },{passive:false});
  
       // ── ACC ────────────────────────────────────────────────
@@ -3941,8 +4078,8 @@ function buildSeqRows(){
       acc.className='sacc'+(seqState.acc[ci][s]?' on':'');
       acc.textContent=ci===2?'OP':'ACC';
       acc.style.cssText=`height:${accH}px;min-height:${accH}px;flex-shrink:0;font-size:${Math.max(7,Math.min(10,CW/3))}px;`;
-      acc.addEventListener('click',()=>{seqState.acc[ci][s]^=1;acc.classList.toggle('on',!!seqState.acc[ci][s]);});
-      acc.addEventListener('touchend',e=>{seqState.acc[ci][s]^=1;acc.classList.toggle('on',!!seqState.acc[ci][s]);e.preventDefault();});
+      acc.addEventListener('click',e=>{const nv=seqState.acc[ci][s]?0:1;seqSpreadSteps(ci,s,e).forEach(ss=>{seqState.acc[ci][ss]=nv;refreshSeqCell(ci,ss);});});
+      acc.addEventListener('touchend',e=>{seqState.acc[ci][s]^=1;refreshSeqCell(ci,s);e.preventDefault();});
  
       // ── CUT drag/wheel ─────────────────────────────────────
       const cutWrap=document.createElement('div');
@@ -3954,24 +4091,34 @@ function buildSeqRows(){
       cutEl.textContent=seqState.cut[ci][s];
       cutWrap.appendChild(cutEl);
  
-      let cA=false,cY2=0,cS2=0;
+      let cA=false,cY2=0,cS2=0,cMods=null;
       cutWrap.addEventListener('pointerdown',e=>{
-        cA=true;cY2=e.clientY;cS2=seqState.cut[ci][s];
-        cutWrap.setPointerCapture(e.pointerId);e.preventDefault();
+        if(e.button!==0)return;
+        cA=true;cY2=e.clientY;cS2=seqState.cut[ci][s];cMods={shiftKey:e.shiftKey,ctrlKey:e.ctrlKey,metaKey:e.metaKey};
+        try{cutWrap.setPointerCapture(e.pointerId);}catch(_){}
+        e.preventDefault();
       });
       cutWrap.addEventListener('pointermove',e=>{
         if(!cA)return;
         const nv=Math.max(0,Math.min(127,Math.round(cS2+(cY2-e.clientY)*.5)));
-        seqState.cut[ci][s]=nv;cutEl.textContent=nv;
+        seqSpreadSteps(ci,s,cMods).forEach(ss=>{seqState.cut[ci][ss]=nv;refreshSeqCell(ci,ss);});
       });
       cutWrap.addEventListener('pointerup',()=>cA=false);
       cutWrap.addEventListener('pointercancel',()=>cA=false);
       cutWrap.addEventListener('wheel',e=>{
         e.preventDefault();
         const nv=Math.max(0,Math.min(127,seqState.cut[ci][s]+(e.deltaY>0?-1:1)));
-        seqState.cut[ci][s]=nv;cutEl.textContent=nv;
+        seqSpreadSteps(ci,s,e).forEach(ss=>{seqState.cut[ci][ss]=nv;refreshSeqCell(ci,ss);});
       },{passive:false});
- 
+
+      // Right-click anywhere on the step → set this channel's loop length here.
+      cell.addEventListener('contextmenu',e=>{
+        e.preventDefault();
+        chLen[ci]=Math.max(1,Math.min(32,s+1));
+        refreshLenMarkers(ci);
+        scheduleLivePatternSync&&scheduleLivePatternSync();
+      });
+
       cell.appendChild(son);
       cell.appendChild(degWrap);
       cell.appendChild(acc);
@@ -4055,6 +4202,7 @@ function snapshotCurrent(){
     solo:[...soloState],
     cue:!!(bank&&bank[curPat]&&bank[curPat].cue),
     bpm,
+    swing:seqSwing,
     kickMode,snareMode,hatsMode,bassWT,padWTIdx,arpWT,
     leadOsc1Wave,leadOsc2Wave,leadOscMode,leadLfoMode,leadLfoWave,leadLfoSync,leadLfoRetrig,leadLfoKey,
     midiInCh,leadAudioIn
@@ -4065,6 +4213,7 @@ function restoreSnapshot(snap){
   // Reset portamento slides so first note doesn't glide from stale frequency
   bsSlide=55;ldSlide=110;lastBassTrigT=-999;lastLeadTrigT=-999;
   Object.assign(seqState,JSON.parse(JSON.stringify(snap.seq)));
+  ensureSeqVol();
   snap.len.forEach((l,ci)=>{chLen[ci]=l;});
   if(snap.scale&&SCALES[snap.scale])scaleKey=snap.scale;
   if(snap.oct)Object.assign(OCT,snap.oct);
@@ -4074,6 +4223,7 @@ function restoreSnapshot(snap){
   if(snap.mute)snap.mute.forEach((m,ci)=>muteState[ci]=m);
   soloState.fill(false); // solo is a live performance state — never restore it
   if(snap.bpm)setBPM(snap.bpm);
+  setSwing(snap.swing||0);
   if(snap.kickMode!==undefined)kickMode=snap.kickMode;
   if(snap.snareMode!==undefined)snareMode=snap.snareMode;
   if(snap.hatsMode!==undefined)hatsMode=snap.hatsMode;
