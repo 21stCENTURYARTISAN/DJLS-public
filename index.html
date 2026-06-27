@@ -3885,38 +3885,28 @@ function updateScale(){
   const phonePortrait = vh>vw && vw<=767 && coarse;
   const phoneLandscape = vw>vh && vh<=540 && coarse;     // phone turned sideways
   const MX=Math.floor(DESIGN_W*0.40), SQ=DESIGN_W-MX;
-  const cyC = 90 + (DESIGN_H-120)/2;                      // vertical centre of the body
   con.style.transformOrigin='top left';
   if(phonePortrait && phonePanel!=='all'){
     // ── PORTRAIT PANEL MODE ─────────────────────────────────────────
-    // 90°-rotated console zoomed into ONE column (mixer or seq) so controls
-    // are touch-sized. Uniform-scale so the column's width fills the screen
-    // height, then pan HORIZONTALLY (panX) across the 6 channels.
-    _panOrient='portrait'; _panAxis='x';
-    const ext = phonePanel==='seq'? SQ : MX;
-    const s = Math.min(vh/ext, PHONE_ZCAP);
-    const ty = phonePanel==='seq'? -s*MX : 0;
-    const contentW = s*DESIGN_H;
-    const minPan = Math.min(0, vw - contentW);
-    _panRange=[minPan, 0];
-    if(_panMode!==phonePanel){ _panMode=phonePanel; panX = vw/2 - s*(DESIGN_H - cyC); }
-    panX = Math.max(minPan, Math.min(0, panX));
-    con.style.transform=`translate(${contentW+panX}px,${ty}px) rotate(90deg) scale(${s})`;
-  } else if(phoneLandscape && phonePanel!=='all'){
-    // ── LANDSCAPE PANEL MODE ────────────────────────────────────────
-    // No rotation. Zoom into the mixer or seq column so it fills the screen
-    // WIDTH, then pan VERTICALLY (panY, two-finger) across the 6 channels.
-    _panOrient='landscape'; _panAxis='y';
+    // Show ONLY the chosen column (mixer or seq), stretched to fill the
+    // screen. All 6 channels stay fixed/visible — no scrolling. Non-uniform
+    // scale (the app already accepts "stretched but usable" elsewhere).
+    _panRange=null; _panMode=phonePanel; _panOrient=null;
     const isSeq = phonePanel==='seq';
     const ext = isSeq? SQ : MX;
-    const s = Math.min(vw/ext, PHONE_ZCAP);
-    const tx = isSeq? -s*MX : 0;
-    const contentH = s*DESIGN_H;
-    const minPan = Math.min(0, vh - contentH);
-    _panRange=[minPan, 0];
-    if(_panMode!==phonePanel){ _panMode=phonePanel; panY = vh/2 - s*cyC; }
-    panY = Math.max(minPan, Math.min(0, panY));
-    con.style.transform=`translate(${tx}px,${panY}px) scale(${s})`;
+    const sx = vh/ext, sy = vw/DESIGN_H;   // sx: column (knobs/steps) fills vh; sy: 6-channel axis fills vw
+    const ty = isSeq? -sx*MX : 0;
+    con.style.transform=`translate(${vw}px,${ty}px) rotate(90deg) scale(${sx},${sy})`;
+  } else if(phoneLandscape && phonePanel!=='all'){
+    // ── LANDSCAPE PANEL MODE ────────────────────────────────────────
+    // No rotation. Only the chosen column, stretched to fill the screen;
+    // mixer goes 40%→full width so knobs spread out. All 6 channels fixed.
+    _panRange=null; _panMode=phonePanel; _panOrient=null;
+    const isSeq = phonePanel==='seq';
+    const ext = isSeq? SQ : MX;
+    const sx = vw/ext, sy = (vh-44)/DESIGN_H;  // reserve 44px for the bottom tab strip so all 6 rows clear it
+    const tx = isSeq? -sx*MX : 0;
+    con.style.transform=`translate(${tx}px,0) scale(${sx},${sy})`;
   } else if(phonePortrait){
     _panRange=null; _panMode='all'; _panOrient=null;
     const s=Math.min(vw/DESIGN_H, vh/DESIGN_W);
@@ -3935,7 +3925,7 @@ function updateScale(){
     pt.style.display = isPhone ? 'flex' : 'none';
     pt.classList.toggle('landscape', phoneLandscape);
     const hint=pt.querySelector('.pt-hint');
-    if(hint) hint.textContent = phoneLandscape ? '2-finger ↕ scroll' : 'swipe ↔ channels';
+    if(hint) hint.textContent = phonePanel==='all' ? '' : 'hold step = loop · 2-finger = fill';
   }
   if(!isPhone && phonePanel!=='all') phonePanel='all';
   _syncPhoneTabs();
