@@ -28,7 +28,7 @@
   --HDR:60px;--TOP:30px;--FTR:30px;
   --BODY:calc(100vh - var(--HDR) - var(--TOP) - var(--FTR));
   --RH:calc(var(--BODY)/6);
-  --MX:40vw;--SQ:60vw;
+  --MX:50vw;--SQ:50vw;
 }
 html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
   color:var(--t1);font-family:var(--fm);user-select:none;touch-action:none;}
@@ -235,10 +235,11 @@ html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
 /* LEAD strip packs 5 sections incl. a 2-oscillator VCO and a dedicated LFO, so
    its steppers/pagers/toggles are compacted to keep the two stacked rows inside
    the section frame (the rest of the channels are untouched). */
+.lead-sec .ksec-title{padding-top:2px;padding-bottom:2px;font-size:11px;} /* shorter title → more body room on short screens */
 .lead-sec .stepper{padding:0;gap:0;width:22px;}
-.lead-sec .stepper-btn{height:10px;width:18px;}
+.lead-sec .stepper-btn{height:8px;width:18px;}
 .lead-sec .pgr{gap:0;width:22px;}
-.lead-sec .pgr-btn{height:10px;width:18px;}
+.lead-sec .pgr-btn{height:8px;width:18px;}
 .lead-sec .ksec-body{padding:0 2px !important;}
 .lead-sec .stepper-lbl,.lead-sec .pgr-lbl{font-size:8px;}
 .lead-sec .stepper-num,.lead-sec .pgr-val{font-size:10px;}
@@ -3871,8 +3872,8 @@ function initScale(){
   DESIGN_H=Math.max(window.innerHeight, MIN_H);
   // Lock CSS vars to fixed pixel values so transform scaling works correctly
   const r=document.documentElement.style;
-  r.setProperty('--MX',Math.floor(DESIGN_W*0.40)+'px'); // rack (mixer) ~40%
-  r.setProperty('--SQ',Math.floor(DESIGN_W*0.60)+'px');
+  r.setProperty('--MX',Math.floor(DESIGN_W*0.50)+'px'); // rack (mixer) = half the UI
+  r.setProperty('--SQ',Math.floor(DESIGN_W*0.50)+'px'); // sequencer = the other half
   const bodyH=DESIGN_H-60-30-30;
   r.setProperty('--BODY',bodyH+'px');
   r.setProperty('--RH',Math.floor(bodyH/VIS_CH)+'px');
@@ -3895,7 +3896,7 @@ function updateScale(){
   const coarse=matchMedia('(pointer:coarse)').matches;
   const phonePortrait = vh>vw && vw<=767 && coarse;
   const phoneLandscape = vw>vh && vh<=540 && coarse;     // phone turned sideways
-  const MX=Math.floor(DESIGN_W*0.40), SQ=DESIGN_W-MX;
+  const MX=Math.floor(DESIGN_W*0.50), SQ=DESIGN_W-MX;
   con.style.transformOrigin='top left';
   if(phonePortrait && phonePanel!=='all'){
     // ── PORTRAIT PANEL MODE ─────────────────────────────────────────
@@ -3955,7 +3956,7 @@ setInterval(()=>{ const pt=document.getElementById('phoneTabs'); if(pt && pt.sty
 function calcDims(){
   const w=DESIGN_W||window.innerWidth;
   LW=Math.max(26,Math.min(38,Math.floor(w*0.3333*.2)));
-  const avail=Math.floor(w*0.6667)-LW;
+  const avail=Math.floor(w*0.50)-LW; // seq is now half the width (mixer takes the other half)
   CW=Math.max(16,Math.floor(avail/seqLen));
   document.getElementById('rowSpacer').style.width=LW+'px';
 }
