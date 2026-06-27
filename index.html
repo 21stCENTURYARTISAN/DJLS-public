@@ -232,6 +232,16 @@ html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
   transition:border-color .12s,color .12s;}
 .stepper-btn:hover{color:var(--t1);border-color:var(--b2);}
 .stepper-num{font-family:var(--fh);font-size:11px;color:var(--accent);line-height:1;letter-spacing:.5px;}
+/* LEAD strip packs 5 sections incl. a 2-oscillator VCO and a dedicated LFO, so
+   its steppers/pagers/toggles are compacted to keep the two stacked rows inside
+   the section frame (the rest of the channels are untouched). */
+.lead-sec .stepper{padding:0;gap:0;width:22px;}
+.lead-sec .stepper-btn{height:10px;width:18px;}
+.lead-sec .pgr{gap:0;width:22px;}
+.lead-sec .pgr-btn{height:10px;width:18px;}
+.lead-sec .ksec-body{padding:0 2px !important;}
+.lead-sec .stepper-lbl,.lead-sec .pgr-lbl{font-size:8px;}
+.lead-sec .stepper-num,.lead-sec .pgr-val{font-size:10px;}
  
 /* 8 knobs grid — section heads in accent, labels muted, values in accent. Mirrors JUCE MixerComponent rendering. */
 .knobs{flex:1;display:flex;gap:0;margin-right:2px;overflow:hidden;}
@@ -3332,7 +3342,7 @@ function makeLeadToggle(parent,label,getV,setV,refreshArr){
   sw.style.cssText='display:flex;flex-direction:column;align-items:center;gap:1px;flex-shrink:0;';
   const l=document.createElement('div');l.className='pgr-lbl';l.textContent=label;
   const btn=document.createElement('div');
-  btn.style.cssText='width:30px;height:16px;font-family:var(--fh);font-size:9px;border:1px solid var(--b2);border-radius:1px;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+  btn.style.cssText='width:27px;height:16px;font-family:var(--fh);font-size:9px;border:1px solid var(--b2);border-radius:1px;cursor:pointer;display:flex;align-items:center;justify-content:center;';
   const paint=()=>{const on=!!getV();btn.textContent=on?'ON':'OFF';btn.style.color=on?'var(--accent)':'var(--t3)';btn.style.background=on?'var(--accent-soft)':'var(--b1)';btn.style.borderColor=on?'var(--accent-dim)':'var(--b2)';};
   paint();sw.appendChild(l);sw.appendChild(btn);parent.appendChild(sw);
   btn.addEventListener('click',()=>{setV(getV()?0:1);paint();scheduleLivePatternSync&&scheduleLivePatternSync();});
@@ -3458,7 +3468,7 @@ function buildMixer(){
     // the VCO frame isn't overcrowded.
     const isLeadStrip=(ch.id==='lead');
     const SNAMES=isLeadStrip?['VCO','LFO','VCF','ENV','FX']:['VCO','VCF','ENV','FX'];
-    const SWIDTHS=isLeadStrip?['30%','22%','13%','15%','20%']:['35%','20%','20%','25%'];
+    const SWIDTHS=isLeadStrip?['33%','22%','12%','14%','19%']:['35%','20%','20%','25%'];
     const kg=document.createElement('div');kg.className='knobs';div.appendChild(kg);
     const updateChordKnobVis=null;
 
@@ -3468,6 +3478,7 @@ function buildMixer(){
     for(let si=0;si<secCount;si++){
       const nk=secSizes[si]; // knobs in this section
       const sec=document.createElement('div');sec.className='ksec';
+      if(isLeadStrip)sec.classList.add('lead-sec'); // compacts the dense 2-row VCO/LFO so it clears the frame
       sec.style.flex='0 0 '+SWIDTHS[si]; // lead keeps fixed widths; non-lead reset to proportional below
       const title=document.createElement('div');title.className='ksec-title';title.textContent=(si===1&&ci<3)?'EQ':SNAMES[si];
       sec.appendChild(title);
@@ -3567,10 +3578,10 @@ function buildMixer(){
           makeStepper(body,'OCT',()=>Math.round(OCT[octKey]),d=>{OCT[octKey]=Math.max(0,Math.min(5,Math.round(OCT[octKey])+d));scheduleLivePatternSync&&scheduleLivePatternSync();return Math.round(OCT[octKey]);});
           // Middle: one row per oscillator — WAVE · COARSE · FINE, columns aligned.
           const oscCol=document.createElement('div');
-          oscCol.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;';
+          oscCol.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;';
           const mkOscRow=(wl,getW,setW,cl,cKey,finPd)=>{
             const row=document.createElement('div');
-            row.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;';
+            row.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:center;gap:3px;';
             makeLeadPager(row,wl,LEAD_WAVES,getW,setW,uiRefresh);
             makeStepper(row,cl,()=>Math.round(P[cKey]),d=>{P[cKey]=Math.max(-24,Math.min(24,Math.round(P[cKey])+d));scheduleLivePatternSync&&scheduleLivePatternSync();return Math.round(P[cKey]);});
             makeKnob(row,finPd[0],finPd[1],finPd[2],finPd[3],finPd[4],ci,kSzC);
@@ -3612,9 +3623,9 @@ function buildMixer(){
       if(si===1 && ch.id==='lead'){
         body.style.flexDirection='column';
         body.style.justifyContent='center';
-        body.style.gap='6px';
+        body.style.gap='4px';
         const topRow=document.createElement('div');
-        topRow.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;width:100%;';
+        topRow.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:center;gap:5px;width:100%;';
         const lr=PD.lead[pdOff],la=PD.lead[pdOff+1];
         makeKnob(topRow,lr[0],lr[1],lr[2],lr[3],lr[4],ci,kSzC);
         makeKnob(topRow,la[0],la[1],la[2],la[3],la[4],ci,kSzC);
@@ -3622,7 +3633,7 @@ function buildMixer(){
         makeLeadPager(topRow,'WAVE',LEAD_LFO_WAVES,()=>leadLfoWave,v=>leadLfoWave=v,uiRefresh);
         body.appendChild(topRow);
         const botRow=document.createElement('div');
-        botRow.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:center;gap:12px;width:100%;';
+        botRow.style.cssText='display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;width:100%;';
         makeLeadToggle(botRow,'SYN',()=>leadLfoSync,v=>leadLfoSync=v,uiRefresh);
         makeLeadToggle(botRow,'RTG',()=>leadLfoRetrig,v=>leadLfoRetrig=v,uiRefresh);
         makeLeadToggle(botRow,'KEY',()=>leadLfoKey,v=>leadLfoKey=v,uiRefresh);
