@@ -34,6 +34,28 @@ html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
   color:var(--t1);font-family:var(--fm);user-select:none;touch-action:none;}
 #console{transform-origin:top left;overflow:hidden;position:relative;}
 
+/* ── PHONE PANEL TABS (rotation-matched transport + view switcher) ── */
+#phoneTabs{display:none;position:fixed;top:0;left:0;height:42px;width:100vh;
+  transform-origin:0 0;transform:rotate(90deg) translateY(-42px);
+  z-index:9000;align-items:center;gap:6px;padding:0 12px;
+  background:rgba(8,11,15,.94);border-bottom:1px solid var(--b1);
+  box-shadow:0 2px 14px rgba(0,0,0,.55);}
+/* Landscape phone: not rotated — sits as a normal bar pinned to the bottom. */
+#phoneTabs.landscape{transform:none;top:auto;bottom:0;left:0;width:100vw;height:44px;
+  border-bottom:none;border-top:1px solid var(--b1);box-shadow:0 -2px 14px rgba(0,0,0,.55);}
+#phoneTabs .ptab{height:30px;min-width:48px;padding:0 13px;border:1px solid var(--b1);
+  background:var(--s1);color:var(--t3);font-family:var(--fh);font-size:13px;letter-spacing:1px;
+  border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+#phoneTabs .ptab.on{background:var(--accent);color:#04181c;border-color:var(--accent);font-weight:700;}
+#phoneTabs .pt-div{width:1px;height:24px;background:var(--b1);margin:0 4px;flex-shrink:0;}
+#phoneTabs .pt-play{min-width:42px;font-size:15px;color:var(--accent);}
+#phoneTabs .pt-play.go{background:var(--accent);color:#04181c;border-color:var(--accent);}
+#phoneTabs .pt-bpm{display:flex;align-items:baseline;gap:4px;color:var(--t3);font-family:var(--fh);}
+#phoneTabs .pt-bpm b{color:var(--accent);font-size:15px;}
+#phoneTabs .pt-bpm i{font-size:9px;font-style:normal;letter-spacing:1px;}
+#phoneTabs .pt-hint{margin-left:auto;font-family:var(--fh);font-size:9px;letter-spacing:.5px;color:var(--t2);opacity:.7;}
+
 /* ── HEADER ───────────────────────────────────────────────── */
 .hdr{height:var(--HDR);display:flex;align-items:center;gap:5px;padding:0 8px;
   background:var(--s1);border-bottom:1px solid var(--b1);position:relative;flex-shrink:0;}
@@ -665,6 +687,19 @@ body.snow .rlbl{background:var(--s1);border-right-color:#8aaac8;}
     <div class="ts-hint">Web Audio needs a gesture to start.<br>Best in Chrome / Edge / Firefox — desktop or landscape mobile.</div>
     <div class="ts-rotate">↻ ROTATE TO LANDSCAPE</div>
   </div>
+</div>
+
+<!-- PHONE PANEL TABS — fixed, rotation-matched. Only shown on portrait phones.
+     Flips the zoomed view (ALL / SYNTH / SEQ) and keeps PLAY + BPM reachable
+     while a zoomed column is scrolled across the channels. -->
+<div id="phoneTabs">
+  <button class="ptab on" data-panel="all"   onclick="setPhonePanel('all')">ALL</button>
+  <button class="ptab"    data-panel="synth" onclick="setPhonePanel('synth')">SYNTH</button>
+  <button class="ptab"    data-panel="seq"   onclick="setPhonePanel('seq')">SEQ</button>
+  <span class="pt-div"></span>
+  <button class="ptab pt-play" id="ptPlay" onclick="togglePlay()">▶</button>
+  <span class="pt-bpm"><b id="ptBpm">132</b><i>BPM</i></span>
+  <span class="pt-hint">swipe ↔ channels</span>
 </div>
 
 <div id="console">
@@ -3715,6 +3750,104 @@ function setTheme(name){
    RESPONSIVE SCALING
 ═══════════════════════════════════════════════════════════ */
 let DESIGN_W=0,DESIGN_H=0;
+// ── Phone panel mode ('all' = legacy fit-everything; 'synth'/'seq' = zoomed) ──
+let phonePanel='all';
+const PHONE_ZCAP=1.8;            // max uniform zoom in panel mode
+// panX drives the rotated portrait pan (horizontal), panY the landscape pan
+// (vertical). _panAxis says which one the drag gesture moves; _panOrient picks
+// the gesture rules (portrait = 1-finger horizontal; landscape = 2-finger).
+let panX=0, panY=0, _panRange=null, _panMode='all', _panAxis='x', _panOrient=null;
+// Currently-armed step long-press canceller; a second finger touching anywhere
+// disables the pending right-click (loop-length) gesture.
+let _curLpClear=null;
+function setPhonePanel(mode){
+  if(phonePanel===mode)return;
+  phonePanel=mode;
+  _panMode='__'; // force re-centre on next updateScale for this panel
+  updateScale();
+  document.querySelectorAll('#phoneTabs .ptab').forEach(b=>{
+    b.classList.toggle('on', b.dataset.panel===mode);
+  });
+}
+
+// ── Panning the zoomed column across the 6 channels ──────────────────
+// SYNTH: one-finger horizontal swipe (knobs are vertical-drag, so no clash).
+// SEQ:   two fingers only (a one-finger horizontal drag there is slide-paint).
+// Two-finger pan works in either panel. Disambiguated in the capture phase so
+// the gesture can steal the move from a control without that control reacting.
+const _ptrs=new Map();
+// Step-press tracking for the two-finger "duplicate at interval" gesture.
+const _stepPtrs=new Map(); let _dupFired=false;
+let _panning=false,_panDecided=false,_hasAnchor=false,_decX=0,_decY=0,_anchorPos=0,_anchorPan=0;
+function _panAvailable(){ return phonePanel!=='all' && _panRange && _panRange[0]<0; }
+function _avg(){ let x=0,y=0; _ptrs.forEach(p=>{x+=p.x;y+=p.y;}); const n=_ptrs.size||1; return [x/n,y/n]; }
+function _resetGesture(){ _panning=false; _panDecided=false; _hasAnchor=false; }
+window.addEventListener('pointerdown',e=>{
+  if(e.pointerType!=='touch')return;
+  _ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(_ptrs.size>=2 && _curLpClear) _curLpClear(); // 2nd finger → disable the loop-length long-press
+  if(_panAvailable()){ _panDecided=false; _hasAnchor=false; } // re-evaluate on finger-count change
+},true);
+window.addEventListener('pointermove',e=>{
+  if(!_ptrs.has(e.pointerId))return;
+  _ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(!_panAvailable())return;
+  const n=_ptrs.size, two=n>=2;
+  const [ax,ay]=_avg();
+  const axisPos=()=> _panAxis==='x'?ax:ay;
+  const engage=()=>{ _panning=true; _panDecided=true; _anchorPos=axisPos(); _anchorPan=_panAxis==='x'?panX:panY; };
+  if(_panning){
+    e.preventDefault(); e.stopPropagation();
+    const v=Math.max(_panRange[0],Math.min(0,_anchorPan+(axisPos()-_anchorPos)));
+    if(_panAxis==='x')panX=v; else panY=v;
+    updateScale();
+    return;
+  }
+  if(_panDecided)return;
+  if(!_hasAnchor){ _decX=ax; _decY=ay; _hasAnchor=true; return; }
+  const dx=ax-_decX, dy=ay-_decY;
+  if(two){
+    if(Math.abs(dx)>4||Math.abs(dy)>4) engage();                 // 2-finger drag pans either orientation
+  } else if(_panOrient==='portrait' && phonePanel==='synth'){
+    if(Math.abs(dx)>12 && Math.abs(dx)>Math.abs(dy)*1.3) engage(); // 1-finger horizontal (knobs are vertical)
+    else if(Math.abs(dy)>12) _panDecided=true;                    // vertical → leave it to the control
+  } // landscape 1-finger does nothing → controls (knobs/steps) keep working
+},true);
+function _endPtr(e){
+  // Two-finger TAP on two steps of one channel (no pan drag) = duplicate at interval.
+  if(e.type==='pointerup' && _stepPtrs.size>=2 && !_panning && !_dupFired){
+    if(tryDuplicateInterval()) _dupFired=true;
+  }
+  _stepPtrs.delete(e.pointerId);
+  _ptrs.delete(e.pointerId);
+  if(_ptrs.size===0){ _resetGesture(); _dupFired=false; _stepPtrs.clear(); }
+  else { _panDecided=false; _hasAnchor=false; }
+}
+window.addEventListener('pointerup',_endPtr,true);
+window.addEventListener('pointercancel',_endPtr,true);
+
+// Pressing two steps of the same channel at once turns ON every Nth step
+// (N = the gap between them), starting at the first pressed step, up to the
+// channel's loop length. "Duplicate the spacing across the row."
+function tryDuplicateInterval(){
+  const v=[..._stepPtrs.values()];
+  if(v.length<2) return false;
+  const a=v[0], b=v[1];
+  if(a.ci!==b.ci) return false;                 // must be the same channel/row
+  const lo=Math.min(a.s,b.s), hi=Math.max(a.s,b.s), gap=hi-lo;
+  if(gap<1) return false;                        // same step → nothing to duplicate
+  const ci=a.ci, limit=chLen[ci];               // fill only within the loop length
+  let n=0;
+  for(let st=lo; st<limit; st+=gap){
+    seqState.on[ci][st]=1;
+    if(!(seqState.vol[ci][st]>0.001)) seqState.vol[ci][st]=1;
+    refreshSeqCell(ci,st); n++;
+  }
+  if(n){ scheduleLivePatternSync&&scheduleLivePatternSync();
+         if(navigator.vibrate){ try{navigator.vibrate([10,7,10]);}catch(_){} } }
+  return n>0;
+}
+
 function initScale(){
   // Enforce a minimum desktop-grade design size. On a narrow mobile / iframe
   // viewport (e.g. 360x270), the synth's per-channel knob/fader layout collapses
@@ -3748,23 +3881,72 @@ function updateScale(){
   // user just turns their phone sideways — the OS keeps the host portrait,
   // but the rotated content displays as landscape. Touch coordinates map
   // through CSS transforms correctly, so input still works.
-  const phonePortrait = vh>vw && vw<=767 &&
-                        matchMedia('(pointer:coarse)').matches;
+  const coarse=matchMedia('(pointer:coarse)').matches;
+  const phonePortrait = vh>vw && vw<=767 && coarse;
+  const phoneLandscape = vw>vh && vh<=540 && coarse;     // phone turned sideways
+  const MX=Math.floor(DESIGN_W*0.40), SQ=DESIGN_W-MX;
+  const cyC = 90 + (DESIGN_H-120)/2;                      // vertical centre of the body
   con.style.transformOrigin='top left';
-  if(phonePortrait){
-    // After rotate(90deg), the console occupies DESIGN_H × DESIGN_W on screen.
-    // Fit uniformly so DESIGN_H maps to vw and DESIGN_W maps to vh.
+  if(phonePortrait && phonePanel!=='all'){
+    // ── PORTRAIT PANEL MODE ─────────────────────────────────────────
+    // 90°-rotated console zoomed into ONE column (mixer or seq) so controls
+    // are touch-sized. Uniform-scale so the column's width fills the screen
+    // height, then pan HORIZONTALLY (panX) across the 6 channels.
+    _panOrient='portrait'; _panAxis='x';
+    const ext = phonePanel==='seq'? SQ : MX;
+    const s = Math.min(vh/ext, PHONE_ZCAP);
+    const ty = phonePanel==='seq'? -s*MX : 0;
+    const contentW = s*DESIGN_H;
+    const minPan = Math.min(0, vw - contentW);
+    _panRange=[minPan, 0];
+    if(_panMode!==phonePanel){ _panMode=phonePanel; panX = vw/2 - s*(DESIGN_H - cyC); }
+    panX = Math.max(minPan, Math.min(0, panX));
+    con.style.transform=`translate(${contentW+panX}px,${ty}px) rotate(90deg) scale(${s})`;
+  } else if(phoneLandscape && phonePanel!=='all'){
+    // ── LANDSCAPE PANEL MODE ────────────────────────────────────────
+    // No rotation. Zoom into the mixer or seq column so it fills the screen
+    // WIDTH, then pan VERTICALLY (panY, two-finger) across the 6 channels.
+    _panOrient='landscape'; _panAxis='y';
+    const isSeq = phonePanel==='seq';
+    const ext = isSeq? SQ : MX;
+    const s = Math.min(vw/ext, PHONE_ZCAP);
+    const tx = isSeq? -s*MX : 0;
+    const contentH = s*DESIGN_H;
+    const minPan = Math.min(0, vh - contentH);
+    _panRange=[minPan, 0];
+    if(_panMode!==phonePanel){ _panMode=phonePanel; panY = vh/2 - s*cyC; }
+    panY = Math.max(minPan, Math.min(0, panY));
+    con.style.transform=`translate(${tx}px,${panY}px) scale(${s})`;
+  } else if(phonePortrait){
+    _panRange=null; _panMode='all'; _panOrient=null;
     const s=Math.min(vw/DESIGN_H, vh/DESIGN_W);
-    // Right-to-left composition: scale → rotate → translate. The translate
-    // shifts the rotated box (which lands in negative-X space) back to (0,0).
     con.style.transform=`translate(${s*DESIGN_H}px,0) rotate(90deg) scale(${s})`;
   } else {
-    // Desktop / tablet / landscape phone — independent X/Y scale fills the
-    // viewport; the trade-off is "stretched but usable" vs "letterboxed".
+    _panRange=null; _panMode='all'; _panOrient=null;
+    // Desktop / tablet / landscape-phone-in-ALL — independent X/Y scale fills.
     const sx=vw/DESIGN_W, sy=vh/DESIGN_H;
     con.style.transform=`scale(${sx},${sy})`;
   }
+  // Phone tab strip: shown on phones (either orientation). Rotated to match the
+  // console only in portrait; a normal bottom bar in landscape.
+  const isPhone = phonePortrait || phoneLandscape;
+  const pt=document.getElementById('phoneTabs');
+  if(pt){
+    pt.style.display = isPhone ? 'flex' : 'none';
+    pt.classList.toggle('landscape', phoneLandscape);
+    const hint=pt.querySelector('.pt-hint');
+    if(hint) hint.textContent = phoneLandscape ? '2-finger ↕ scroll' : 'swipe ↔ channels';
+  }
+  if(!isPhone && phonePanel!=='all') phonePanel='all';
+  _syncPhoneTabs();
 }
+function _syncPhoneTabs(){
+  const p=document.getElementById('ptPlay');
+  if(p){ p.textContent = (typeof playing!=='undefined'&&playing)?'■':'▶'; p.classList.toggle('go', !!(typeof playing!=='undefined'&&playing)); }
+  const b=document.getElementById('ptBpm');
+  if(b && typeof bpm!=='undefined') b.textContent=bpm;
+}
+setInterval(()=>{ const pt=document.getElementById('phoneTabs'); if(pt && pt.style.display==='flex') _syncPhoneTabs(); }, 300);
 
 /* ═══════════════════════════════════════════════════════════
    BUILD SEQUENCER
@@ -3991,8 +4173,16 @@ function buildSeqRows(){
       sonToCell.set(son,{ci,s});
 
       let sonMode=null; // 'vol' (drag fill-top) | 'paint' (toggle)
+      // Touch long-press on the step SWITCH = the desktop right-click (set this
+      // channel's loop length here). Bound to `son` ONLY so the DEG/ACC/CUT
+      // automation lanes below are never affected. Cancels on movement (so
+      // slide-paint is untouched) and reverts the toggle the press caused.
+      let lpTimer=null,lpSX=0,lpSY=0,lpPrev=null;
+      const lpClear=()=>{ if(lpTimer){clearTimeout(lpTimer);lpTimer=null;} if(_curLpClear===lpClear)_curLpClear=null; };
       son.addEventListener('pointerdown',e=>{
         if(e.button!==0)return; // right-button → cell contextmenu sets loop length
+        if(e.pointerType==='touch') _stepPtrs.set(e.pointerId,{ci,s}); // for 2-finger duplicate
+        if(_ptrs && _ptrs.size>=2) return; // 2+ fingers → pan / duplicate-interval, not a single toggle
         e.preventDefault();
         try{son.setPointerCapture(e.pointerId);}catch(_){}
         const rect=son.getBoundingClientRect();
@@ -4008,7 +4198,25 @@ function buildSeqRows(){
         } else {
           sonMode='paint';
           paintVal=isOn?0:1;
-          seqSpreadSteps(ci,s,e).forEach(ss=>{
+          const spread=seqSpreadSteps(ci,s,e);
+          if(e.pointerType==='touch'){
+            // Arm long-press: snapshot affected steps so we can undo the toggle
+            // if the hold completes into a loop-length set.
+            lpPrev=spread.map(ss=>({ss,on:seqState.on[ci][ss],vol:seqState.vol[ci][ss]}));
+            lpSX=e.clientX; lpSY=e.clientY;
+            lpClear();
+            _curLpClear=lpClear;
+            lpTimer=setTimeout(()=>{
+              lpTimer=null;
+              if(lpPrev) lpPrev.forEach(p=>{ seqState.on[ci][p.ss]=p.on; seqState.vol[ci][p.ss]=p.vol; refreshSeqCell(ci,p.ss); });
+              chLen[ci]=Math.max(1,Math.min(32,s+1));
+              refreshLenMarkers(ci);
+              scheduleLivePatternSync&&scheduleLivePatternSync();
+              sonMode=null;
+              if(navigator.vibrate){ try{navigator.vibrate(18);}catch(_){} }
+            },450);
+          }
+          spread.forEach(ss=>{
             seqState.on[ci][ss]=paintVal;
             if(paintVal && !(seqState.vol[ci][ss]>0.001)) seqState.vol[ci][ss]=1; // re-enabling a zeroed step restores full vol
             refreshSeqCell(ci,ss);
@@ -4016,6 +4224,8 @@ function buildSeqRows(){
         }
       });
       son.addEventListener('pointermove',e=>{
+        // Any real movement = a drag/slide-paint, not a long-press → disarm.
+        if(lpTimer && (Math.abs(e.clientX-lpSX)>10||Math.abs(e.clientY-lpSY)>10)) lpClear();
         if(!sonMode)return;
         if(sonMode==='vol'){
           // paint velocity across on-steps as the cursor slides along the row
@@ -4031,8 +4241,8 @@ function buildSeqRows(){
             if(info){ seqSpreadSteps(info.ci,info.s,e).forEach(ss=>{ if(seqState.on[info.ci][ss]!==paintVal){ seqState.on[info.ci][ss]=paintVal; if(paintVal&&!(seqState.vol[info.ci][ss]>0.001))seqState.vol[info.ci][ss]=1; refreshSeqCell(info.ci,ss);} }); } break; } }
         }
       });
-      son.addEventListener('pointerup',()=>{sonMode=null;});
-      son.addEventListener('pointercancel',()=>{sonMode=null;});
+      son.addEventListener('pointerup',()=>{sonMode=null;lpClear();});
+      son.addEventListener('pointercancel',()=>{sonMode=null;lpClear();});
       son.addEventListener('wheel',e=>{
         if(!seqState.on[ci][s])return;
         e.preventDefault();
